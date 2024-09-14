@@ -2,3 +2,6 @@ in/all_masters.csv
 
 **/out/*
 !**/out/.gitkeep
+
+__pycache__/
+*.pyc
