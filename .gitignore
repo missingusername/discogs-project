@@ -1,2 +1,4 @@
 in/all_masters.csv
 
+**/out/*
+!**/out/.gitkeep
