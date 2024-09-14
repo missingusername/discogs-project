@@ -1,0 +1,101 @@
+master_id,main_release,artist_names,artist_ids,title,year,genres,styles
+113,116925,['Vince Watson'],[3225],Moments In Time,2002,['Electronic'],"['Techno', 'Tech House']"
+114,42056,['Vince Watson'],[3225],Biologique,1999,['Electronic'],"['Deep House', 'Tech House', 'Techno']"
+115,336873,['Soleil (2)'],[233125],Soleil,2004,['Electronic'],"['IDM', 'Electro']"
+116,5415,['Blue Arsed Fly'],[1162],Knackered EP,1997,['Electronic'],['Techno']
+117,91899,['Origin'],[5508],Wide-Eyed Angel,1999,['Electronic'],['Progressive Trance']
+118,5033,['Origin'],[5508],Yellow,1999,['Electronic'],"['Progressive House', 'Trance']"
+119,35796,['Hyper On Experience'],[1199],Keep It In The Family E.P.,1993,['Electronic'],"['Breakbeat', 'Hardcore']"
+120,6538,['Hyper On Experience'],[1199],Fun For All The Family E.P.,1992,['Electronic'],"['Breakbeat', 'Hardcore']"
+121,104038,['Mixrace'],[69209],The Future Is Before Your Eyes,1992,['Electronic'],"['Hardcore', 'Breakbeat']"
+122,85912,['Mixrace'],[69209],Organized Chaos E.P.,1993,['Electronic'],"['Breakbeat', 'Hardcore', 'Jungle']"
+123,394536,"['Mixrace', 'Pro-Ton-Isospace']","[69209, 272461]",The Endless Skies / True Jungle,1994,['Electronic'],"['Drum n Bass', 'Jungle']"
+124,225108,['Mixrace'],[69209],A Different Drum,1995,['Electronic'],['Drum n Bass']
+125,33418,['Earth Leakage Trip'],[7407],Psychotronic EP,1991,['Electronic'],"['Breakbeat', 'Techno', 'Bleep']"
+126,84193,['Earth Leakage Trip'],[7407],Neopolitan EP,1992,['Electronic'],"['Breakbeat', 'Hardcore', 'Techno', 'Bleep']"
+127,107793,['Earth Leakage Trip'],[7407],The Virtuality EP,1992,['Electronic'],"['Breakbeat', 'Techno', 'Ambient']"
+128,169893,['Cybotron'],[3863],Cosmic Cars,1982,['Electronic'],"['Techno', 'Electro']"
+129,162067,['Cybotron'],[3863],Alleys Of Your Mind,1981,['Electronic'],['Electro']
+130,17859,['Cybotron'],[3863],Clear,1983,"['Electronic', 'Hip Hop']",['Electro']
+131,1443761,['choenyi'],[520747],Sew,2008,['Electronic'],"['Abstract', 'Experimental', 'Ambient']"
+132,4862,['Emmanuel Top'],[1240],Stress,1995,['Electronic'],"['Techno', 'Acid']"
+133,2007628,['Cybotron'],[3863],Enter,1983,['Electronic'],"['Electro', 'Synth-pop']"
+135,6812,['Max Duley'],[3978],Watch As We Now Drift,1998,['Electronic'],"['Techno', 'Experimental']"
+136,19657,['Cybotron'],[3863],Techno City,1984,['Electronic'],['Electro']
+137,6813,['Max Duley'],[3978],Beyond The Pale E.P.,1999,['Electronic'],"['Techno', 'Experimental']"
+138,33664,['Dvus'],[26480],T-10 / Thrillseekers,1991,['Electronic'],"['Breakbeat', 'Hardcore', 'Techno']"
+139,6832,['Max Duley'],[3978],Joyrage,1999,['Electronic'],"['Techno', 'Experimental']"
+140,354853,"['Cybotron', 'Model 500']","[3863, 1141]",Alleys Of Your Mind / Off To Battle,2004,['Electronic'],"['Techno', 'Electro']"
+141,33662,['Dvus'],[26480],The Last E / The Last A,1991,['Electronic'],"['Breakbeat', 'Hardcore', 'Techno']"
+142,1895461,"['Agoraphobic Nosebleed', 'Total Fucking Destruction']","[75315, 504613]",Frontside Nosegrind EP,2009,['Rock'],['Grindcore']
+143,6814,['Max Duley'],[3978],Lobe Yoga,1999,['Electronic'],"['Abstract', 'Techno']"
+144,6811,['Max Duley'],[3978],Body Conscious,2000,['Electronic'],"['Abstract', 'Techno', 'Minimal']"
+145,6809,['Max Duley'],[3978],Elegant Manoeuvres,2000,['Electronic'],['Techno']
+146,6810,['Max Duley'],[3978],Storyteller,2000,['Electronic'],"['Abstract', 'Techno', 'Experimental']"
+147,900449,['choenyi'],[520747],Defervescence,2007,['Electronic'],"['Minimal Techno', 'Experimental']"
+148,6833,['Max Duley'],[3978],This Weak Flesh,2000,['Electronic'],"['Techno', 'Experimental']"
+149,6834,['Max Duley'],[3978],Walking Wounded,2000,['Electronic'],"['Abstract', 'Techno', 'Tribal', 'Experimental']"
+150,6835,['Max Duley'],[3978],Bliss Within Agony,2001,['Electronic'],"['Abstract', 'Techno', 'Experimental']"
+151,6836,['Max Duley'],[3978],Canal,2001,['Electronic'],"['Abstract', 'Techno', 'Experimental']"
+152,1751126,"['Unholy Grave', 'Total Fucking Destruction']","[254841, 504613]",Grind Eternal EP,2009,['Rock'],['Grindcore']
+154,96726,['V-One'],[6283],Dead Cities,1999,['Electronic'],"['Trance', 'Progressive Trance']"
+155,33421,['2 Bad Mice'],[2076],2 Bad Mice / No Respect,1991,['Electronic'],"['Breakbeat', 'Hardcore']"
+156,1015349,['Art Brut'],[255294],It's A Bit Complicated,2007,['Rock'],"['Indie Rock', 'Britpop']"
+157,6117,['2 Bad Mice'],[2076],Hold It Down,1992,['Electronic'],"['Breakbeat', 'Hardcore']"
+158,60455,['Salt Tank'],[1282],Eugina,2000,['Electronic'],"['Trance', 'Progressive Trance']"
+160,3271,['Max Duley'],[3978],Mute Embrace,2001,['Electronic'],"['Techno', 'Experimental']"
+162,4577,['Max Duley'],[3978],Speech Emphasis,2001,['Electronic'],"['Techno', 'Experimental']"
+163,60150,['Max Duley'],[3978],Genuflect,2003,['Electronic'],"['Abstract', 'Techno', 'Experimental']"
+164,150591,['House Pimps'],[29530],Get The Hook,1993,['Electronic'],"['Hard Trance', 'Acid']"
+165,1498338,['Art Brut'],[255294],Emily Kane,2005,['Rock'],['Indie Rock']
+167,1317944,['choenyi'],[520747],Over Time,2007,['Electronic'],"['Minimal Techno', 'Experimental']"
+168,33420,['Cosmo & Dibs'],[6891],Help Me / Oh So Nice,1991,['Electronic'],"['Breakbeat', 'Hardcore']"
+170,1419966,['choenyi'],[520747],Metaplastic,2008,['Electronic'],"['Minimal Techno', 'Ambient']"
+171,443023,['Art Brut'],[255294],Formed A Band,2004,['Rock'],"['Indie Rock', 'Britpop']"
+172,6838,['Mike Parker'],[7771],Copper Variations,2001,['Electronic'],"['Abstract', 'Techno', 'Minimal']"
+173,691313,['Various'],[194],"It's Not A Trick, It's Yuki Yaki",2006,['Electronic'],"['Techno', 'IDM']"
+174,42490,['Kaotic Chemistry'],[6873],Five In One Night,1991,['Electronic'],"['Breakbeat', 'Hardcore']"
+175,821630,['Manziping'],[600980],Valpo,2006,['Electronic'],"['Techno', 'Tech House', 'Minimal']"
+176,6837,['Rob Alcock & Tommy Gillard'],[7770],Second Nature,2000,['Electronic'],"['Abstract', 'Techno', 'Minimal']"
+177,1318149,['FeldFunker'],[696752],Beyond The Moon - The Remixes,2007,['Electronic'],"['Techno', 'Trance', 'IDM', 'Tech House', 'Electro', 'Minimal']"
+178,3956,['Ben Sims'],[3947],10.2 Sampler,2001,['Electronic'],"['Tribal', 'Techno']"
+179,1318179,['Various'],[194],10 Jahre Kreislauf,2007,"['Electronic', 'Jazz', 'Rock', 'Non-Music', 'Pop']","['Folk Rock', 'Dub', 'IDM', 'Electro', 'Downtempo', 'Noise', 'Free Jazz', 'Field Recording', 'Techno', 'Goa Trance', 'Minimal', 'Breakbeat', 'Gabber', 'Dub Techno', 'Disco', 'Tech House', 'Experimental', 'Alternative Rock', 'Industrial', 'Neofolk', 'House', 'Abstract', 'Easy Listening', 'Glitch', 'Europop', 'Ambient', 'Dark Ambient']"
+180,8783,['Hardcell'],[8685],Morning Hours,2001,['Electronic'],['Techno']
+181,267691,"['Christiaan Kouijzer', 'Zeusz', 'Christiaan Kouijzer', 'Alex Calver']","[195602, 228084, 195602, 119743]",Hydraulix 24,2004,['Electronic'],['Techno']
+182,61887,['Tommy Gillard'],[9056],Still,2002,['Electronic'],"['Techno', 'Acid']"
+183,118374,['Various'],[194],Octane Rating 2000.1,2000,['Electronic'],['Techno']
+184,639535,['D.A.V.E. The Drummer'],[11584],Hotwire,2006,['Electronic'],['Techno']
+185,6116,['Kaotic Chemistry'],[6873],LSD EP,1992,['Electronic'],"['Breakbeat', 'Hardcore']"
+186,388028,"['BK', 'D.A.V.E. The Drummer']","[8349, 11584]",Soul Image / Major Disturbance,2005,['Electronic'],['Techno']
+188,11945,['D.A.V.E. The Drummer'],[11584],Strictly Underground,1998,['Electronic'],"['Techno', 'Acid']"
+189,531521,['Joris Voorn'],[47796],Fuse Presents Joris Voorn,2005,['Electronic'],"['Techno', 'Minimal']"
+190,33663,['Sci'],[26481],The Blind Man / Uprising,1991,['Electronic'],"['Breakbeat', 'Hardcore', 'Techno']"
+191,6829,['Various'],[194],Series II,1999,['Electronic'],"['Abstract', 'Techno', 'Minimal']"
+192,21786,"['Lawrie Immersion', 'D.A.V.E. The Drummer']","[11624, 11584]",Why Don't You? / In The Freeze,1999,['Electronic'],"['Techno', 'Acid']"
+193,52011,['D.A.V.E. The Drummer'],[11584],Amphetamine Or Cocaine / Pump Dept,2002,['Electronic'],"['Techno', 'Acid']"
+194,443811,"['D.A.V.E. The Drummer', 'DDR']","[11584, 16930]",Original Control / Ze Frenchman,2005,['Electronic'],"['Techno', 'Acid']"
+195,29877,['Cosmo & Dibs'],[6891],Star Eyes / Up Keys,1991,['Electronic'],"['Breakbeat', 'Hardcore', 'Techno', 'Bleep']"
+196,343601,"['Andy Farley', 'Ant', 'Andy Farley', 'D.A.V.E. The Drummer']","[15223, 11625, 15223, 11584]",Buzzin / Do Right Here,2004,['Electronic'],['Techno']
+197,228539,"['Andy Farley', 'D.A.V.E. The Drummer']","[15223, 11584]",MBS / Don't Stop The Groove,2004,['Electronic'],"['Techno', 'Hard House']"
+198,31729,['Tone Def'],[25455],Tone Def / Hectic House,1991,['Electronic'],"['Breakbeat', 'Hardcore', 'Techno']"
+199,1456298,"['D.A.V.E. The Drummer', 'Jerome Hill', 'Temperature Drop']","[11584, 232313, 16893]",Yolk 5 Vs Cluster 50,2008,['Electronic'],['Techno']
+200,6860,['Various'],[194],Preaching Through The Converted,1998,['Electronic'],"['Abstract', 'Experimental']"
+201,1713556,"['Guy McAffer', 'D.A.V.E. The Drummer']","[17580, 11584]",R.A.W. 9 vs Hydraulix 9,2009,['Electronic'],['Techno']
+202,33665,['Tone Def'],[25455],Big Love,1992,['Electronic'],"['Breakbeat', 'Hardcore']"
+203,1461524,['D.A.V.E. The Drummer'],[11584],Hydraulix 9 Rmxs,2008,['Electronic'],['Drum n Bass']
+204,65278,['Mashed'],[21614],Buzz The Bass,1991,['Electronic'],"['Breakbeat', 'Hardcore', 'Acid', 'Techno']"
+205,1490472,"['Steve Mills (2)', 'D.A.V.E. The Drummer']","[1236112, 11584]",You're Only Old Once !! / Owsley Acid,2008,['Electronic'],"['Techno', 'Acid']"
+206,1566866,['D.A.V.E. The Drummer'],[11584],Hydraulix 13.7,2008,['Electronic'],['Techno']
+207,8439757,['Γιώργος Παπασιδέρης'],[1965114],Γιώργος Παπασιδέρης,1991,"['Folk, World, & Country']",[]
+208,6815,['Mist'],[135750],Like Tears In Rain,2000,['Electronic'],"['Abstract', 'Techno', 'Tribal']"
+210,791471,"['Pattie Brooks', 'The Simon Orchestra']","[82248, 138076]",Love Shook,1977,['Funk / Soul'],['Disco']
+211,22638,['Blame'],[312],Music Takes You,1992,['Electronic'],"['Breakbeat', 'Hardcore']"
+212,6841,"[""Kat'man""]",[7775],Do,2001,['Electronic'],['House']
+213,208833,['Pattie Brooks'],[82248],Our Ms. Brooks,1978,['Electronic'],['Disco']
+214,1541726,['Pattie Brooks'],[82248],Party Girl,1979,"['Electronic', 'Funk / Soul']",['Disco']
+215,31871,['The Sushi Club'],[10498],Sushidelic,1999,['Electronic'],"['Electro', 'Downtempo', 'Ambient']"
+216,334429,['Yax'],[227543],Really Sunday E. P.,2001,['Electronic'],"['Drum n Bass', 'Downtempo', 'Ambient']"
+217,23238,['The Sushi Club'],[10498],Neo Sashimi,2000,['Electronic'],"['Electro', 'Ambient', 'Downtempo']"
+218,1360203,['Ant & Nick Grater'],[18388],Panic Underground / Laugh,2008,['Electronic'],"['Techno', 'Acid']"
+219,1568269,['Chris Liberator & Sterling Moss'],[1535009],I'm Bored,2008,['Electronic'],"['Techno', 'Acid']"
+220,131087,['The Sushi Club'],[10498],Sakura,2003,['Electronic'],"['Downtempo', 'Ambient', 'Dub']"
