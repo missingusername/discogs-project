@@ -18,7 +18,6 @@ def assemble_csv_files(folder_path, output_file):
     # Write the combined data to the output file
     combined_data.to_csv(output_file, index=False)
 
-# Example usage
 folder_path = os.path.join('in', 'data_100k_chunks')
 output_file = os.path.join('in', 'all_masters.csv')
 assemble_csv_files(folder_path, output_file)
