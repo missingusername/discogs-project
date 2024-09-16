@@ -8,6 +8,14 @@ from utils.logger_utils import get_logger
 logger = get_logger(__name__)
 
 def load_csv_as_df(input_csv_path: Path, progress_bar: bool = False) -> pd.DataFrame:
+    """
+    Load a CSV file into a pandas DataFrame.
+    Parameters:
+        input_csv_path (Path): The path to the input CSV file.
+        progress_bar (bool, optional): Whether to display a progress bar during loading. Defaults to False.
+    Returns:
+        pd.DataFrame: The loaded CSV data as a pandas DataFrame.
+    """
     logger.info(f"Trying to load CSV file: {input_csv_path}")
     if not input_csv_path.exists():
         raise FileNotFoundError(f"The file {input_csv_path} does not exist.")
@@ -74,6 +82,17 @@ def export_df_as_csv(df: pd.DataFrame, directory: Path, filename: str) -> None:
 def add_empty_column_to_df(
     df: pd.DataFrame, column_name: str, data_type: str = "None"
 ) -> pd.DataFrame:
+    """
+    Add an empty column to a DataFrame with a specified data type.
+
+    Parameters:
+    df (pd.DataFrame): The DataFrame to which the new column will be added.
+    column_name (str): The name of the new column to be added.
+    data_type (str): The data type of the new column. Default is "None".
+
+    Returns:
+    pd.DataFrame: The DataFrame with the new column added.
+    """
     # Add an empty column to the DataFrame
     df[column_name] = None
     df = df.astype({column_name: data_type})
