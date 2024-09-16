@@ -129,20 +129,23 @@ def fetch_image_uri_by_master(df: pd.DataFrame, client: discogs_client.Client) -
             df.at[row.Index, 'Image_uri'] = None
     return df
 
+def main():
+    # Load the CSV file into a DataFrame
+    input_csv_path = Path("in") / "100_discogs_masters.csv"
+    df = load_csv_as_df(input_csv_path)
 
-# Load the CSV file into a DataFrame
-input_csv_path = Path("in") / "100_discogs_masters.csv"
-df = load_csv_as_df(input_csv_path)
+    # Add an empty column to the DataFrame to store the image URIs
+    df = add_empty_column_to_df(df, "Image_uri", "str")
 
-# Add an empty column to the DataFrame to store the image URIs
-df = add_empty_column_to_df(df, "Image_uri", "str")
+    # Initialize the Discogs client with user token
+    user_token = os.getenv("DISCOGS_API_KEY")
+    client = discogs_client.Client(user_agent='jl-prototyping/0.1', user_token=user_token)
 
-# Initialize the Discogs client with user token
-user_token = os.getenv("DISCOGS_API_KEY")
-client = discogs_client.Client(user_agent='jl-prototyping/0.1', user_token=user_token)
+    # Fetch image URIs for each master in the DataFrame
+    df = fetch_image_uri_by_master(df, client)
 
-# Fetch image URIs for each master in the DataFrame
-df = fetch_image_uri_by_master(df, client)
+    # Export result
+    export_df_as_csv(df, Path("out"), "all_masters_with_image_uri")
 
-
-export_df_as_csv(df, Path("out"), "all_masters_with_image_uri")
+if __name__ == "__main__":
+    main()
