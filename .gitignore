@@ -5,3 +5,7 @@ in/all_masters.csv
 
 __pycache__/
 *.pyc
+
+*.env
+
+env

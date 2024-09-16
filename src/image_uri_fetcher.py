@@ -1,11 +1,18 @@
+import os
 from pathlib import Path
 
 import pandas as pd
 from tqdm import tqdm
+import discogs_client
+from dotenv import load_dotenv
 
 from utils.logger_utils import get_logger
 
+# Load environment variables from .env file from root directory
+load_dotenv()
+
 logger = get_logger(__name__)
+
 
 def load_csv_as_df(input_csv_path: Path, progress_bar: bool = False) -> pd.DataFrame:
     """
@@ -19,7 +26,7 @@ def load_csv_as_df(input_csv_path: Path, progress_bar: bool = False) -> pd.DataF
     logger.info(f"Trying to load CSV file: {input_csv_path}")
     if not input_csv_path.exists():
         raise FileNotFoundError(f"The file {input_csv_path} does not exist.")
-    
+
     if progress_bar:
         # Initialize the progress bar in pandas
         tqdm.pandas()
@@ -37,7 +44,8 @@ def load_csv_as_df(input_csv_path: Path, progress_bar: bool = False) -> pd.DataF
     else:
         # Read the CSV file into a DataFrame
         return pd.read_csv(input_csv_path)
-    
+
+
 def export_df_as_csv(df: pd.DataFrame, directory: Path, filename: str) -> None:
     """
     Export a pandas DataFrame as a CSV file.
@@ -98,11 +106,43 @@ def add_empty_column_to_df(
     df = df.astype({column_name: data_type})
     return df
 
-def fetch_image_uri():
-    pass
+
+def fetch_image_uri_by_master(df: pd.DataFrame, client: discogs_client.Client) -> pd.DataFrame:
+    """
+    Fetch image URIs for each master in the DataFrame and update the 'Image_uri' column.
+
+    Parameters:
+    df (pd.DataFrame): The DataFrame containing master IDs.
+    client (discogs_client.Client): The Discogs client for making API calls.
+
+    Returns:
+    pd.DataFrame: The DataFrame with the 'Image_uri' column updated.
+    """
+    for row in tqdm(df.itertuples(), total=len(df), desc="Fetching Image URIs"):
+        try:
+            master_id = row.master_id  # Assuming the DataFrame has a column named 'Master_id'
+            master = client.master(master_id)
+            image_uri = master.images[0]['uri'] if master.images else "Image not available"
+            df.at[row.Index, 'Image_uri'] = image_uri
+        except Exception as e:
+            logger.error(f"Error fetching image URI for master ID {master_id}: {e}")
+            df.at[row.Index, 'Image_uri'] = None
+    return df
 
 
+# Load the CSV file into a DataFrame
 input_csv_path = Path("in") / "100_discogs_masters.csv"
 df = load_csv_as_df(input_csv_path)
+
+# Add an empty column to the DataFrame to store the image URIs
 df = add_empty_column_to_df(df, "Image_uri", "str")
+
+# Initialize the Discogs client with user token
+user_token = os.getenv("DISCOGS_API_KEY")
+client = discogs_client.Client(user_agent='jl-prototyping/0.1', user_token=user_token)
+
+# Fetch image URIs for each master in the DataFrame
+df = fetch_image_uri_by_master(df, client)
+
+
 export_df_as_csv(df, Path("out"), "all_masters_with_image_uri")
