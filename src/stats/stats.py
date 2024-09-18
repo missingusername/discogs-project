@@ -1,3 +1,7 @@
+"""
+This script generates various statistics from a CSV file containing music data and saves the results to CSV and JSON files.
+"""
+
 import pandas as pd
 from collections import Counter
 import ast

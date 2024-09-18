@@ -1,3 +1,13 @@
+"""
+This script interacts with the Discogs API to fetch image URIs for a list of master releases.
+
+Authentication is loaded from a .env file in the root directory. An empty column in initialized in the DataFrame to store the image URIs.
+
+The script fetches image URIs for each master release in the DataFrame using the Discogs API and updates the 'Image_uri' column.
+
+The resulting DataFrame is then exported as a CSV file.
+"""
+
 import os
 from pathlib import Path
 

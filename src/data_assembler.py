@@ -1,3 +1,7 @@
+"""
+This script assembles multiple CSV files from a specified folder into a single CSV file.
+"""
+
 from pathlib import Path
 from glob import glob
 import pandas as pd

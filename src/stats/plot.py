@@ -1,3 +1,7 @@
+"""
+This script generates visualizations for Discogs data statistics from CSV and JSON files.
+"""
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import os

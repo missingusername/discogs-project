@@ -1,3 +1,7 @@
+"""
+This script generates a randomized sample from a CSV file and saves it to a new CSV file.
+"""
+
 import pandas as pd
 
 # Function to load CSV and generate a randomized sample
