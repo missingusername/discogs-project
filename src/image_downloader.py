@@ -85,7 +85,7 @@ def download_covers_from_df(df: pd.DataFrame, output_dir: Path):
 
     for _, row in df.iterrows():
         image_url = row['Image_uri']
-        album_title = row['title']
+        album_title = str(row['master_id'])
         download_album_cover_by_uri(image_url, output_dir, album_title)
         time.sleep(1)
 
