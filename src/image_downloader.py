@@ -90,7 +90,7 @@ def download_covers_from_df(df: pd.DataFrame, output_dir: Path):
         time.sleep(1)
 
 def main():
-    input_csv_path = Path("out") / "all_masters_with_image_uri.csv"
+    input_csv_path = Path("out") / "100_masters_with_image_uri.csv"
     image_output_directory = Path("out") / "images"
 
     df = load_csv_as_df(input_csv_path)
