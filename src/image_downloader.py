@@ -1,3 +1,7 @@
+"""
+This script downloads album cover images from URLs provided in a CSV file and saves them to a specified directory.
+"""
+
 from io import BytesIO
 import requests
 import time
