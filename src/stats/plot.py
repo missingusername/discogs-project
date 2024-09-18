@@ -29,9 +29,7 @@ def create_line_plots(data_by_year, title, xlabel, ylabel, output_path, remove_o
     genre_years = sorted(data_by_year.keys(),reverse=True)  # Sort years in ascending order
 
     if remove_outliers:
-        genre_years = genre_years[:-1]
-
-    print(genre_years)
+        genre_years = genre_years[:-1] # Remove year 0 if it exists
 
     for label in labels:
         counts_per_year = []
