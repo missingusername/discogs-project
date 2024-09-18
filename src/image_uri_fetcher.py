@@ -5,11 +5,9 @@ import pandas as pd
 from tqdm import tqdm
 import discogs_client
 from dotenv import load_dotenv
+import time
 
 from utils.logger_utils import get_logger
-
-# Load environment variables from .env file from root directory
-load_dotenv()
 
 logger = get_logger(__name__)
 
@@ -119,6 +117,7 @@ def fetch_image_uri_by_master(df: pd.DataFrame, client: discogs_client.Client) -
     pd.DataFrame: The DataFrame with the 'Image_uri' column updated.
     """
     for row in tqdm(df.itertuples(), total=len(df), desc="Fetching Image URIs"):
+        time.sleep(1)  # Sleep for 1 second to avoid rate limiting
         try:
             master_id = row.master_id  # Assuming the DataFrame has a column named 'Master_id'
             master = client.master(master_id)
@@ -130,6 +129,9 @@ def fetch_image_uri_by_master(df: pd.DataFrame, client: discogs_client.Client) -
     return df
 
 def main():
+    # Load environment variables from .env file from root directory
+    load_dotenv()
+    
     # Load the CSV file into a DataFrame
     input_csv_path = Path("in") / "100_discogs_masters.csv"
     df = load_csv_as_df(input_csv_path)
@@ -139,13 +141,14 @@ def main():
 
     # Initialize the Discogs client with user token
     user_token = os.getenv("DISCOGS_API_KEY")
+    print(user_token)
     client = discogs_client.Client(user_agent='jl-prototyping/0.1', user_token=user_token)
 
     # Fetch image URIs for each master in the DataFrame
     df = fetch_image_uri_by_master(df, client)
 
     # Export result
-    export_df_as_csv(df, Path("out"), "all_masters_with_image_uri")
+    export_df_as_csv(df, Path("out"), "100_masters_with_image_uri")
 
 if __name__ == "__main__":
     main()
