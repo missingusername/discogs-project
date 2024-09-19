@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
@@ -36,6 +37,7 @@ def load_csv_as_df(input_csv_path: Path, progress_bar: bool = False) -> pd.DataF
         return data
     else:
         # Read the CSV file into a DataFrame
+        logger.info(f"Successfully loaded CSV file: {input_csv_path.stem}")
         return pd.read_csv(input_csv_path)
     
 def export_df_as_csv(df: pd.DataFrame, directory: Path, filename: str) -> None:
@@ -78,21 +80,17 @@ def export_df_as_csv(df: pd.DataFrame, directory: Path, filename: str) -> None:
     except Exception as e:
         logger.error(f"Unexpected error occurred when trying to write to file: {e}")
 
-def add_empty_column_to_df(
-    df: pd.DataFrame, column_name: str, data_type: str = "None"
-) -> pd.DataFrame:
+def add_empty_column_to_df(df: pd.DataFrame, column_name: str, dtype: str) -> pd.DataFrame:
     """
-    Add an empty column to a DataFrame with a specified data type.
+    Add an empty column to the DataFrame with the specified name and data type.
 
     Parameters:
-    df (pd.DataFrame): The DataFrame to which the new column will be added.
-    column_name (str): The name of the new column to be added.
-    data_type (str): The data type of the new column. Default is "None".
+    df (pd.DataFrame): The DataFrame to which the column will be added.
+    column_name (str): The name of the new column.
+    dtype (str): The data type of the new column.
 
     Returns:
     pd.DataFrame: The DataFrame with the new column added.
     """
-    # Add an empty column to the DataFrame
-    df[column_name] = None
-    df = df.astype({column_name: data_type})
+    df[column_name] = pd.Series(dtype=dtype)
     return df
