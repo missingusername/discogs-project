@@ -68,7 +68,7 @@ def fetch_image_uri_by_master(
 
     def process_chunk(chunk: pd.DataFrame) -> pd.DataFrame:
         for row in tqdm(chunk.itertuples(), total=len(chunk), desc="Fetching Image URIs"):
-            time.sleep(1)  # Sleep for 1 second to avoid rate limiting
+            time.sleep(0.7)  # Sleep for 1 second to avoid rate limiting
             try:
                 master_id = row.master_id  # Assuming the DataFrame has a column named 'Master_id'
                 logger.debug(f"Processing master_id: {master_id}")  # Debugging statement
@@ -199,7 +199,7 @@ def main():
     # Load the CSV file into a DataFrame
     # input_csv_path = Path(__file__).resolve().parents[1] / "in" / "100_discogs_masters.csv"
     input_dir = Path(__file__).resolve().parents[1] / "in"
-    input_csv_path = input_dir / "100_masters_with_image_uri.csv"
+    input_csv_path = input_dir / "100_discogs_masters.csv"
 
     output_path = Path(__file__).resolve().parents[1] / "out"
     df = load_csv_as_df(input_csv_path)
@@ -213,7 +213,7 @@ def main():
         client,
         chunk_size=16,
         process_unprocessed_only=True,
-        simulate_interruption=True,
+        simulate_interruption=False,
         interruption_after_chunks=2,
         output_dir=output_path,
         final_dir=input_dir
