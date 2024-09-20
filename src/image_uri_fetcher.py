@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from typing import List, Optional, Tuple
+import shutil
 import time
 
 import discogs_client
@@ -23,7 +24,9 @@ def fetch_image_uri_by_master(
     simulate_interruption: bool = False,
     interruption_after_chunks: int = 1,
     chunk_dir: Optional[Path] = None,
-    output_dir: Optional[Path] = None
+    output_dir: Optional[Path] = None,
+    final_dir: Optional[Path] = None,
+    output_file_name: str = "100_masters_with_image_uri.csv",
 ) -> pd.DataFrame:
     """
     Fetch image URIs for each master in the DataFrame and update the 'image_uri' column.
@@ -116,7 +119,10 @@ def fetch_image_uri_by_master(
             indices_to_update = combined_df[mask].index.intersection(original_df.index)  # Ensure indices are common
             original_df.loc[indices_to_update, 'image_uri'] = combined_df.loc[indices_to_update, 'image_uri']
             original_df.reset_index(inplace=True)
-            original_df.to_csv(output_dir / "100_masters_with_image_uri.csv", index=False)
+            output_file_path = output_dir / output_file_name
+            final_file_path = final_dir / output_file_name
+            original_df.to_csv(output_file_path, index=False)
+            move_file(output_file_path, final_dir)
 
     return original_df
 
@@ -161,6 +167,30 @@ def filter_unprocessed_rows_base(
 
     return df[combined_conditions]
 
+def move_file(source_path: Path, destination_path: Path) -> None:
+    """
+    Move a file from the source directory to the destination directory.
+
+    Parameters:
+    source_path (Path): The path to the source file.
+    destination_path (Path): The path to the destination directory.
+
+    Raises:
+    FileNotFoundError: If the source file does not exist.
+    Exception: If there is an error during the move process.
+    """
+    try:
+        if not source_path.exists():
+            raise FileNotFoundError(f"The source file {source_path} does not exist.")
+
+        # Ensure the destination directory exists
+        destination_path.mkdir(parents=True, exist_ok=True)
+
+        # Move the file
+        shutil.move(str(source_path), str(destination_path / source_path.name))
+        print(f"File moved from {source_path} to {destination_path}")
+    except Exception as e:
+        print(f"Error moving file from {source_path} to {destination_path}: {e}")
 
 def main():
     # Load environment variables from .env file from root directory
@@ -168,8 +198,10 @@ def main():
     
     # Load the CSV file into a DataFrame
     # input_csv_path = Path(__file__).resolve().parents[1] / "in" / "100_discogs_masters.csv"
-    input_csv_path = Path(__file__).resolve().parents[1] / "in" / "100_masters_with_image_uri.csv"
-    output_csv_path = Path(__file__).resolve().parents[1] / "out"
+    input_dir = Path(__file__).resolve().parents[1] / "in"
+    input_csv_path = input_dir / "100_masters_with_image_uri.csv"
+
+    output_path = Path(__file__).resolve().parents[1] / "out"
     df = load_csv_as_df(input_csv_path)
 
     # Initialize the Discogs client with user token
@@ -183,11 +215,9 @@ def main():
         process_unprocessed_only=True,
         simulate_interruption=True,
         interruption_after_chunks=2,
-        output_dir=output_csv_path  # Simulate interruption after 3 chunks
+        output_dir=output_path,
+        final_dir=input_dir
     )
-
-    # Export result
-    # export_df_as_csv(df, Path(__file__).resolve().parents[0] / "out", "100_masters_with_image_uri")
 
 if __name__ == "__main__":
     main()
