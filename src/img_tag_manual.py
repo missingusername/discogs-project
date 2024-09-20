@@ -1,6 +1,7 @@
 import pandas as pd
 import tkinter as tk
 from PIL import Image, ImageTk
+import sys
 
 # Load the CSV file
 input_file = 'out/random_sample_100_with_image_uri.csv'
@@ -37,6 +38,9 @@ def update_image_and_get_input(index):
     elif user_input_var.get() == 'n':
         df.at[index, 'is_vinyl'] = False
 
+    # Save the updated CSV file after each tagging
+    df.to_csv(input_file, index=False)
+
 # Function to handle button clicks
 def on_button_click(value):
     user_input_var.set(value)
@@ -45,11 +49,12 @@ def on_button_click(value):
 def on_close():
     root.quit()
     root.destroy()
+    sys.exit()  # Terminate the script
 
 # Initialize tkinter window
 root = tk.Tk()
 root.title("Image Viewer")
-root.protocol("WM_DELETE_WINDOW", on_close)  # Bind the close event to the on_close function
+root.protocol("WM_DELETE_WINDOW", on_close)
 
 # Create a label to display the image
 info_label = tk.Label(root, text="", font=("Helvetica", 14))
@@ -75,12 +80,11 @@ no_button.pack(side=tk.LEFT)
 next_button = tk.Button(button_frame, text="Next", command=lambda: user_input_var.set('next'))
 next_button.pack(side=tk.LEFT)
 
-# Iterate through each row
+# Iterate through each row and skip already tagged images
 for index in df.index:
+    if pd.notna(df.at[index, 'is_vinyl']):
+        continue
     update_image_and_get_input(index)
-
-# Save the updated CSV file
-df.to_csv(input_file, index=False)
 
 # Close the tkinter window
 root.destroy()
