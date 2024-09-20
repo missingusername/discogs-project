@@ -12,17 +12,21 @@ if 'is_vinyl' not in df.columns:
 
 # Function to update image and get user input
 def update_image_and_get_input(index):
-    global img_label, df, root, next_button
+    global img_label, df, root, next_button, info_label
 
     # Get the image path
     master_id = df.at[index, 'master_id']
     image_path = f'out/images/{master_id}.jpg'
 
-    # Load and display the image
+    # Load and resize the image
     img = Image.open(image_path)
+    img = img.resize((500, 500))
     img = ImageTk.PhotoImage(img)
     img_label.config(image=img)
     img_label.image = img
+
+    # Update the info label
+    info_label.config(text=f"Image {index + 1} out of {len(df)}\nCurrent image: {master_id}")
 
     # Wait for user input
     next_button.wait_variable(user_input_var)
@@ -37,11 +41,20 @@ def update_image_and_get_input(index):
 def on_button_click(value):
     user_input_var.set(value)
 
+# Function to handle window close event
+def on_close():
+    root.quit()
+    root.destroy()
+
 # Initialize tkinter window
 root = tk.Tk()
 root.title("Image Viewer")
+root.protocol("WM_DELETE_WINDOW", on_close)  # Bind the close event to the on_close function
 
 # Create a label to display the image
+info_label = tk.Label(root, text="", font=("Helvetica", 14))
+info_label.pack()
+
 img_label = tk.Label(root)
 img_label.pack()
 
