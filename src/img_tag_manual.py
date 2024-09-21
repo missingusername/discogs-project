@@ -1,6 +1,7 @@
-import customtkinter as ctk
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
 from tkinter import filedialog
-from PIL import Image
+from PIL import Image, ImageTk
 import pandas as pd
 import os
 import sys
@@ -25,17 +26,18 @@ def update_image_display():
     # Load and resize the image
     img = Image.open(image_path)
     img = img.resize((500, 500))
-    current_image = ctk.CTkImage(light_image=img, dark_image=img, size=(500, 500))
+    current_image = ImageTk.PhotoImage(img)
 
     # Update the image label
     image_label.configure(image=current_image)
+    image_label.image = current_image  # Keep a reference to avoid garbage collection
 
     # Update the info label
     info_label.configure(text=f"Image {current_index + 1} out of {len(image_files)}\nCurrent image: {os.path.basename(image_path)}")
 
     # Update the progress bar
     progress = (current_index + 1) / len(image_files)
-    progressbar.set(progress)
+    progressbar['value'] = progress * 100
 
 # Function to process the current image based on user input
 def process_current_image():
@@ -94,7 +96,7 @@ def on_key_press(event):
 
 # Function to handle folder selection
 def choose_folder():
-    global folder_path, image_files, df, csv_file_path, current_index, image_label, current_image, info_label, user_input_var, skip_button, progressbar
+    global folder_path, image_files, df, csv_file_path, current_index, image_label, current_image, info_label, user_input_var, progressbar
 
     folder_path = filedialog.askdirectory()
     if folder_path:
@@ -125,39 +127,40 @@ def choose_folder():
             current_index += 1
 
         # Create and pack the frame to hold the buttons
-        button_frame = ctk.CTkFrame(app)
+        button_frame = ttk.Frame(app)
         button_frame.pack(side="bottom", pady=10)
         
         # Show the buttons in a 2x2 grid
-        button_padding = 10
+        button_padding = 10 # Set padding for the buttons
+        button_width = 10  # Set a fixed width for all buttons
         
-        vinyl_button = ctk.CTkButton(button_frame, text="Vinyl", command=lambda: on_button_click('vinyl'))
+        vinyl_button = ttk.Button(button_frame, text="Vinyl", command=lambda: on_button_click('vinyl'), width=button_width)
         vinyl_button.grid(row=0, column=0, padx=button_padding, pady=button_padding)
         
-        cover_button = ctk.CTkButton(button_frame, text="Cover", command=lambda: on_button_click('cover'))
+        cover_button = ttk.Button(button_frame, text="Cover", command=lambda: on_button_click('cover'), width=button_width)
         cover_button.grid(row=0, column=1, padx=button_padding, pady=button_padding)
         
-        back_button = ctk.CTkButton(button_frame, text="Back", command=on_back_button_click)
+        back_button = ttk.Button(button_frame, text="Back", command=on_back_button_click, width=button_width)
         back_button.grid(row=1, column=0, padx=button_padding, pady=button_padding)
 
-        next_button = ctk.CTkButton(button_frame, text="Next", command=on_next_button_click)
+        next_button = ttk.Button(button_frame, text="Next", command=on_next_button_click, width=button_width)
         next_button.grid(row=1, column=1, padx=button_padding, pady=button_padding)
         
         # Create a label to display the image info
-        info_label = ctk.CTkLabel(app, text="", font=("Helvetica", 14))
+        info_label = ttk.Label(app, text="", font=("Helvetica", 14))
         info_label.pack(pady=10)
 
         # Create a progress bar
-        progressbar = ctk.CTkProgressBar(app, orientation="horizontal")
+        progressbar = ttk.Progressbar(app, orient=HORIZONTAL, mode='determinate')
         progressbar.pack(pady=10, padx=20)
-        progressbar.set(0)  # Initialize progress to 0
+        progressbar['value'] = 0  # Initialize progress to 0
 
         # Create a label to display the image
-        image_label = ctk.CTkLabel(app, text="")
-        image_label.pack(expand=True, fill="both", anchor="center", pady=20)
+        image_label = ttk.Label(app, text="")
+        image_label.pack(expand=True, pady=20)
 
         # Variable to store user input
-        user_input_var = ctk.StringVar()
+        user_input_var = ttk.StringVar()
 
         # Display the first image
         if current_index < len(image_files):
@@ -166,30 +169,27 @@ def choose_folder():
             print("No untagged images found.")
 
 # Initialize the main application window
-app = ctk.CTk()
-
-ctk.set_appearance_mode("System")  # Modes: system (default), light, dark
-ctk.set_default_color_theme("blue")  # Themes: blue (default), dark-blue, green
+app = ttk.Window(themename="vapor")
 
 # Set the title of the window
-app.title("Discogs Cover Tagger")
+app.title("TTKBootstrap Window")
 
 # Set the size of the window
-app.geometry("500x750")
+app.geometry("600x600")
 
 # Bind keyboard events
 app.bind('<Left>', on_key_press)
 app.bind('<Right>', on_key_press)
 
 # Create a frame to hold the initial label and button
-initial_frame = ctk.CTkFrame(app)
+initial_frame = ttk.Frame(app)
 initial_frame.pack(expand=True)
 
 # Create and pack the initial label and button inside the frame with margins
-label = ctk.CTkLabel(initial_frame, text="Select an image folder to process")
+label = ttk.Label(initial_frame, text="Select an image folder to process")
 label.pack(pady=10, padx=20)
 
-choose_folder_button = ctk.CTkButton(initial_frame, text="Choose Folder", command=choose_folder)
+choose_folder_button = ttk.Button(initial_frame, text="Choose Folder", command=choose_folder)
 choose_folder_button.pack(pady=10, padx=20)
 
 # Initialize the image label variable
