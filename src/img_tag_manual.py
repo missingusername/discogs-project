@@ -147,11 +147,11 @@ def choose_folder():
             current_index += 1
 
         # Create and pack the frame to hold the buttons
-        button_frame = ctk.CTkFrame(master_frame)
+        button_frame = ctk.CTkFrame(master_frame, corner_radius=10)
         button_frame.pack(side="bottom", pady=10)
         
         # Show the buttons in a 2x2 grid
-        button_padding = 10
+        button_padding = 5
         
         vinyl_button = ctk.CTkButton(button_frame, text="Vinyl", command=lambda: on_button_click('vinyl'))
         vinyl_button.grid(row=0, column=0, padx=button_padding, pady=button_padding)
@@ -167,11 +167,12 @@ def choose_folder():
         
         # Create a label to display the image info
         info_label = ctk.CTkLabel(master_frame, text="", font=("Helvetica", 14))
-        info_label.pack(pady=10)
+        info_label.pack(pady=5)
 
+        progress_padding = 5
         # Create a frame to hold the progress labels and progress bars
-        progress_frame = ctk.CTkFrame(master_frame)
-        progress_frame.pack(pady=10, padx=20, fill="x")
+        progress_frame = ctk.CTkFrame(master_frame, corner_radius=10)
+        progress_frame.pack(pady=10, padx=10, fill="x")
 
         # Create a label to display the progress text
         progress_label = ctk.CTkLabel(progress_frame, text="0/0 covers tagged", font=("Helvetica", 14))
@@ -228,7 +229,7 @@ app.bind('<Left>', on_key_press)
 app.bind('<Right>', on_key_press)
 
 # Create a frame to hold the initial label and button
-initial_frame = ctk.CTkFrame(master_frame)
+initial_frame = ctk.CTkFrame(master_frame, corner_radius=10)
 initial_frame.pack(expand=True)
 
 # Create and pack the initial label and button inside the frame with margins
