@@ -1,9 +1,8 @@
 import customtkinter as ctk
 from tkinter import filedialog
-from PIL import Image, ImageTk
+from PIL import Image
 import pandas as pd
 import os
-import sys
 
 # Function to handle button clicks
 def on_button_click(value):
@@ -24,8 +23,7 @@ def update_image_display():
 
     # Load and resize the image
     img = Image.open(image_path)
-    img = img.resize((500, 500))
-    current_image = ImageTk.PhotoImage(img)
+    current_image = ctk.CTkImage(img, size=(500, 500))
 
     # Update the image label
     image_label.configure(image=current_image)
