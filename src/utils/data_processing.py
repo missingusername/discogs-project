@@ -1,12 +1,15 @@
+import ast
+import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from utils.logger_utils import get_logger
+from logger_utils import get_logger
 
 logger = get_logger(__name__)
+
 
 def load_csv_as_df(input_csv_path: Path, progress_bar: bool = False) -> pd.DataFrame:
     """
@@ -39,7 +42,8 @@ def load_csv_as_df(input_csv_path: Path, progress_bar: bool = False) -> pd.DataF
         # Read the CSV file into a DataFrame
         logger.info(f"Successfully loaded CSV file: {input_csv_path.stem}")
         return pd.read_csv(input_csv_path)
-    
+
+
 def export_df_as_csv(df: pd.DataFrame, directory: Path, filename: str) -> None:
     """
     Export a pandas DataFrame as a CSV file.
@@ -80,7 +84,10 @@ def export_df_as_csv(df: pd.DataFrame, directory: Path, filename: str) -> None:
     except Exception as e:
         logger.error(f"Unexpected error occurred when trying to write to file: {e}")
 
-def add_empty_column_to_df(df: pd.DataFrame, column_name: str, dtype: str) -> pd.DataFrame:
+
+def add_empty_column_to_df(
+    df: pd.DataFrame, column_name: str, dtype: str
+) -> pd.DataFrame:
     """
     Add an empty column to the DataFrame with the specified name and data type.
 
@@ -94,3 +101,57 @@ def add_empty_column_to_df(df: pd.DataFrame, column_name: str, dtype: str) -> pd
     """
     df[column_name] = pd.Series(dtype=dtype)
     return df
+
+
+def export_csv_to_json(
+    csv_file_path: Path, json_file_path: Path, replace_empty_values: bool = False
+) -> None:
+    logger.info(f"Converting CSV file to JSON: {csv_file_path.stem}")
+    df = load_csv_as_df(csv_file_path)
+
+    # Function to safely evaluate string representations of lists
+    def safe_eval(x):
+        try:
+            return ast.literal_eval(x)
+        except (ValueError, SyntaxError):
+            logger.warning(f"Failed to evaluate string: {x}")
+            return x
+
+    # Apply the safe_eval function to each column
+    for col in df.columns:
+        df[col] = df[col].map(safe_eval)
+
+    if replace_empty_values:
+        df.fillna("", inplace=True)
+
+    # Convert DataFrame to list of dictionaries
+    records = df.to_dict("records")
+
+    try:
+        with open(json_file_path, "w", encoding="utf-8") as f:
+            json.dump(records, f, indent=2, ensure_ascii=False)
+        logger.info(f"Successfully converted CSV file to JSON: {json_file_path.stem}")
+    except Exception as e:
+        logger.error(f"An error occurred while converting CSV file to JSON: {e}")
+
+
+def main():
+    input_csv = (
+        Path(__file__).resolve().parents[2]
+        / "in"
+        / "random_samples"
+        / "processed"
+        / "5000_masters_with_image_uri.csv"
+    )
+    output_json = (
+        Path(__file__).resolve().parents[2]
+        / "in"
+        / "random_samples"
+        / "processed"
+        / "5000_masters_with_image_uri.json"
+    )
+    export_csv_to_json(input_csv, output_json)
+
+
+if __name__ == "__main__":
+    main()
