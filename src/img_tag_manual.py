@@ -45,14 +45,14 @@ def initialize_dataframe(folder_path, image_files):
     master_ids = [os.path.splitext(f)[0] for f in image_files]
     csv_file_path = os.path.join(folder_path, 'tagged_images.csv')
     if os.path.exists(csv_file_path):
-        df = pd.read_csv(csv_file_path)
+        df = pd.read_csv(csv_file_path, dtype={'master_id': str})
     else:
-        df = pd.DataFrame({'master_id': master_ids, 'is_vinyl': [None] * len(image_files)})
+        df = pd.DataFrame({'master_id': master_ids, 'category': [None] * len(image_files)})
     return df, csv_file_path
 
 def skip_tagged_images(df):
     current_index = 0
-    while current_index < len(image_files) and pd.notna(df.at[current_index, 'is_vinyl']):
+    while current_index < len(image_files) and pd.notna(df.at[current_index, 'category']):
         print(f"Skipping already tagged image at index: {current_index}")
         current_index += 1
     return current_index
@@ -70,9 +70,10 @@ def create_button_frame():
     button_padding = 5
 
     ctk.CTkButton(button_frame, text="Vinyl", command=lambda: on_button_click('vinyl')).grid(row=0, column=0, padx=button_padding, pady=button_padding)
-    ctk.CTkButton(button_frame, text="Cover", command=lambda: on_button_click('cover')).grid(row=0, column=1, padx=button_padding, pady=button_padding)
+    ctk.CTkButton(button_frame, text="Other", command=lambda: on_button_click('other')).grid(row=0, column=1, padx=button_padding, pady=button_padding)
+    ctk.CTkButton(button_frame, text="Cover", command=lambda: on_button_click('cover')).grid(row=0, column=2, padx=button_padding, pady=button_padding)
     ctk.CTkButton(button_frame, text="Back", command=on_back_button_click).grid(row=1, column=0, padx=button_padding, pady=button_padding)
-    ctk.CTkButton(button_frame, text="Next", command=on_next_button_click).grid(row=1, column=1, padx=button_padding, pady=button_padding)
+    ctk.CTkButton(button_frame, text="Next", command=on_next_button_click).grid(row=1, column=2, padx=button_padding, pady=button_padding)
 
 def create_info_label():
     global info_label
@@ -127,9 +128,10 @@ def update_gui():
     print(f"Updating image for index: {current_index}")
 
     image_name = df.at[current_index, 'master_id'] + '.jpg'
-    is_vinyl = df.at[current_index, 'is_vinyl']
+    category = df.at[current_index, 'category']
+    print(f"Current category: {category}")
 
-    image_path = construct_image_path(folder_path, image_name, is_vinyl)
+    image_path = construct_image_path(folder_path, image_name, category)
     print(f"Current image path: {image_path}")
 
     img = Image.open(image_path)
@@ -138,26 +140,24 @@ def update_gui():
     image_label.configure(image=current_image)
     image_label.image = current_image
 
-    info_label.configure(text=f"Image {current_index + 1} out of {len(image_files)}\nCurrent image: {os.path.basename(image_path)}")
+    info_label.configure(text=f"Image {current_index + 1} out of {len(image_files)}\nCurrent image: {os.path.basename(image_path)}\nCategory: {'Not tagged' if pd.isna(category) else category}")
 
     update_progress_bars(df, image_files)
 
-def construct_image_path(folder_path, image_name, is_vinyl):
-    if pd.isna(is_vinyl):
+def construct_image_path(folder_path, image_name, category):
+    if pd.isna(category):
         return os.path.join(folder_path, image_name)
-    elif is_vinyl:
-        return os.path.join(folder_path, 'vinyl', image_name)
     else:
-        return os.path.join(folder_path, 'cover', image_name)
+        return os.path.join(folder_path, category, image_name)
 
 def update_progress_bars(df, image_files):
-    tagged_images_count = df['is_vinyl'].notna().sum()
+    tagged_images_count = df['category'].notna().sum()
     progress = tagged_images_count / len(image_files)
     progressbar.set(progress)
     progress_label.configure(text=f"{tagged_images_count}/{len(image_files)} covers tagged")
 
-    covers_count = df['is_vinyl'].value_counts().get(False, 0)
-    albums_count = df['is_vinyl'].value_counts().get(True, 0)
+    covers_count = df['category'].value_counts().get('cover', 0)
+    albums_count = df['category'].value_counts().get('vinyl', 0)
     total_tagged = covers_count + albums_count
 
     cover_album_progress = covers_count / total_tagged if total_tagged > 0 else 0
@@ -167,17 +167,18 @@ def update_progress_bars(df, image_files):
 def process_current_image():
     global df, current_index
 
-    is_vinyl = user_input_var.get() == 'vinyl'
-    df.at[current_index, 'is_vinyl'] = is_vinyl
-    target_folder = os.path.join(folder_path, 'vinyl' if is_vinyl else 'cover')
-    print(f"Tagging as {'vinyl' if is_vinyl else 'cover'}")
+    category = user_input_var.get()
+    current_category = df.at[current_index, 'category']
+    df.at[current_index, 'category'] = category
+    target_folder = os.path.join(folder_path, category)
+    print(f"Tagging as {category}")
 
     if not os.path.exists(target_folder):
         os.makedirs(target_folder)
         print(f"Created folder: {target_folder}")
 
     image_name = df.at[current_index, 'master_id'] + '.jpg'
-    source_path = os.path.join(folder_path, image_name)
+    source_path = construct_image_path(folder_path, image_name, current_category)
     new_image_path = os.path.join(target_folder, image_name)
     os.rename(source_path, new_image_path)
     print(f"Moved image to: {new_image_path}")
