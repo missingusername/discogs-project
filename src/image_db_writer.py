@@ -28,10 +28,10 @@ def retrieve_unprocessed_document(collection: pymongo.collection.Collection) -> 
                 '$or': [
                     {'image_data': {'$exists': False}},
                     {'image_data': None},
-                    {'image_data': ''}
                 ]
             },
-            {'Image_uri': {'$ne': 'Image not available'}}
+            {'Image_uri': {'$ne': 'Image not available'}},
+            {'Image_uri': {'$ne': ''}}
         ]
     })
     return document
@@ -79,7 +79,7 @@ def main():
 
     mongo_uri = os.getenv("MONGODB_URI")
 
-    client = pymongo.MongoClient(mongo_uri)
+    client = pymongo.MongoClient(mongo_uri, serverApi=pymongo.ServerApi('1'))
     db = client["album_covers"]
     sample_collection = db["5K-albums-sample"]
 
