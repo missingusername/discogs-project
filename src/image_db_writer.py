@@ -1,6 +1,7 @@
 from io import BytesIO
 import os
 import pymongo.collection
+import pymongo.server_api
 import requests
 import time
 from tqdm import tqdm
@@ -79,7 +80,7 @@ def main():
 
     mongo_uri = os.getenv("MONGODB_URI")
 
-    client = pymongo.MongoClient(mongo_uri, serverApi=pymongo.ServerApi('1'))
+    client = pymongo.MongoClient(mongo_uri)
     db = client["album_covers"]
     sample_collection = db["5K-albums-sample"]
 
