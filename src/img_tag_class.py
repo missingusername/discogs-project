@@ -300,6 +300,7 @@ class DiscogsCoverTagger:
             "tag": tag,
             "tagged_by": {
                 "tagger_id": self.tagger,
+                "tag_value": tag,
                 "timestamp": pd.Timestamp.now(),
                 "role": "primary_tagger" if document['tagging_status'] == "unprocessed" else "secondary_tagger"
             }
