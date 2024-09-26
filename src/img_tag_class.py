@@ -16,6 +16,7 @@ from utils.logger_utils import get_logger
 
 BATCH_SIZE = 16
 LOG_LEVEL = "INFO"
+MODE = "TAGGING"
 
 logger = get_logger(__name__, level=LOG_LEVEL)
 
@@ -29,33 +30,34 @@ class DatabaseManager:
         self.collection = self.db[collection_name]
 
     def retrieve_unprocessed_documents(
-        self, limit: int = 16, update_status: bool = False, as_list: bool = True
+        self, limit: int = 16, update_status: bool = False, as_list: bool = True, mode: str = "TAGGING", tagger: str = None
     ) -> pymongo.cursor.Cursor | list:
-        # Find documents that match the criteria
-        cursor = self.collection.find(
-            {
-                "$and": [
-                    {"image_data": {"$exists": True}},
-                    {"tagging_status": {"$eq": "unprocessed"}},
-                ]
-            }
-        ).limit(limit)
+        query = {
+            "$and": [
+                {"image_data": {"$exists": True}},
+            ]
+        }
         
-        # Convert cursor to list to avoid cursor exhaustion
+        if mode == "TAGGING":
+            query["$and"].append({"tagging_status": {"$eq": "unprocessed"}})
+        elif mode == "VALIDATION" and tagger:
+            query["$and"].append({"tagging_status": {"$ne": "unprocessed"}})
+            query["$and"].append({"tagged_by.tagger_id": {"$ne": tagger}})
+        
+        cursor = self.collection.find(query).limit(limit)
+        
         documents = list(cursor)
         
-        # Optionally update the tagging_status to "in progress"
-        if update_status:
+        if update_status and mode == "TAGGING":
             self.update_documents_to_in_progress(documents)
-
-        # Optionally return the documents as a list
+        
         if as_list:
             return documents
         
         return cursor
     
-    def reset_current_batch_status(self, batch_ids):
-        if batch_ids:
+    def reset_current_batch_status(self, batch_ids, mode):
+        if mode == "TAGGING" and batch_ids:
             self.collection.update_many(
                 {"_id": {"$in": list(batch_ids)}},
                 {"$set": {"tagging_status": "unprocessed"}}
@@ -63,10 +65,7 @@ class DatabaseManager:
             logger.info("Reset status of current batch documents to 'unprocessed'.")
 
     def update_documents_to_in_progress(self, cursor: pymongo.cursor.Cursor) -> None:
-        # Collect the IDs of the documents to update
         document_ids = [doc["_id"] for doc in cursor]
-
-        # Update the tagging_status to "in progress"
         self.collection.update_many(
             {"_id": {"$in": document_ids}}, {"$set": {"tagging_status": "in progress"}}
         )
@@ -83,9 +82,9 @@ class DatabaseManager:
                     }
                 }
             )
+
     def test_connection(self) -> bool:
         try:
-            # Perform a simple operation to test the connection
             self.collection.estimated_document_count()
             logger.info("Database connection test passed")
             return True
@@ -94,7 +93,6 @@ class DatabaseManager:
             return False
         
     def count_unprocessed_documents(self) -> int:
-        # Count documents that match the criteria
         count = self.collection.count_documents(
             {
                 "$and": [
@@ -105,6 +103,7 @@ class DatabaseManager:
         )
         logger.info(f"Found {count} unprocessed documents")
         return count
+
 class GuiManager:
     def __init__(self, tagger):
         self.tagger = tagger
@@ -132,14 +131,18 @@ class GuiManager:
         self.image_label.pack(expand=True)
         self.info_label = ctk.CTkLabel(self.master_frame, text="", font=("Helvetica", 14))
         self.info_label.pack(pady=5)
-       
+
+        # Add a label to display the current mode
+        self.mode_label = ctk.CTkLabel(self.master_frame, text=f"Mode: {self.tagger.mode.upper()}", font=("Helvetica", 14))
+        self.mode_label.pack(pady=5)
+
         self.create_widgets()
         self.display_image()
 
         self.app.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def on_close(self):
-        self.tagger.reset_current_batch_status()
+        self.tagger.reset_current_batch_status(self.tagger.mode)
         self.app.destroy()
 
     def create_widgets(self):
@@ -215,9 +218,21 @@ class GuiManager:
         artist = ', '.join(artist_names)
         album_title = document.get('title', 'Unknown Album')
         release_year = document.get('year', 'Unknown Year')
-        self.label.configure(text=f"Artist: {artist}, Album: {album_title}, Year: {release_year}")
+        document_id = document.get('_id', 'Unknown ID')
+        self.label.configure(text=f"ID: {document_id}\nArtist: {artist}, Album: {album_title}, Year: {release_year}")
+
+        # Update the mode label to match the styling of the artist and album title label
+        self.mode_label.configure(text=f"Mode: {self.tagger.mode}", font=("Helvetica", 14))
+        self.mode_label.pack(after=self.label, pady=5)
 
         self.info_label.configure(text=f"Image {self.tagger.current_index + 1} out of {len(self.tagger.documents)}")
+
+        # Display tagging information if mode is VALIDATION
+        if self.tagger.mode == "VALIDATION" and "tagged_by" in document:
+            tagging_info = "\n".join(
+                [f"Tagger: {tag['tagger_id']}, Tag: {tag['tag_value']}, Role: {tag['role']}" for tag in document['tagged_by']]
+            )
+            self.info_label.configure(text=f"{self.info_label.cget('text')}\n\nTagging Info:\n{tagging_info}")
 
         self.update_progress_bars()
 
@@ -225,7 +240,7 @@ class GuiManager:
         logger.debug(f"Button clicked: {value}")
         self.user_input_var.set(value)
         self.tagger.process_current_image()
-        if not self.tagger.batch_prepared:  # Check the flag here
+        if not self.tagger.batch_prepared:
             self.on_next_button_click()
 
     def on_next_button_click(self):
@@ -243,7 +258,6 @@ class GuiManager:
         else:
             self.update_gui()
 
-        # Check if we need to fetch more documents
         if self.tagger.document_queue.qsize() < self.tagger.batch_size and not self.tagger.is_fetching:
             self.tagger.retrieve_unprocessed_covers_async()
 
@@ -264,7 +278,7 @@ class GuiManager:
         self.app.mainloop()
 
 class DiscogsCoverTagger:
-    def __init__(self, db_manager: DatabaseManager):
+    def __init__(self, db_manager: DatabaseManager, mode: str = "TAGGING"):
         self.db_manager = db_manager
         self.tagger = self.get_tagger_identity()
         self.current_index = 0
@@ -277,14 +291,14 @@ class DiscogsCoverTagger:
         self.document_queue = queue.Queue()
         self.is_fetching = False
         self.batch_prepared = False
+        self.mode = mode
 
-        # initial pictures
         self.retrieve_unprocessed_covers()
         
         self.gui_manager = GuiManager(self)
 
-    def reset_current_batch_status(self):
-        self.db_manager.reset_current_batch_status(self.current_batch_ids)
+    def reset_current_batch_status(self, mode):
+        self.db_manager.reset_current_batch_status(self.current_batch_ids, mode)
 
     def process_current_image(self):
         if self.current_index >= len(self.documents):
@@ -294,19 +308,29 @@ class DiscogsCoverTagger:
         tag = self.gui_manager.user_input_var.get()
         document_id = document["_id"]
 
-        processed_document = {
-            "_id": document_id,
-            "tagging_status": "tagged",
-            "tag": tag,
-            "tagged_by": {
+        if self.mode == "TAGGING":
+            processed_document = {
+                "_id": document_id,
+                "tagging_status": "tagged",
+                "tag": tag,
+                "tagged_by": {
+                    "tagger_id": self.tagger,
+                    "tag_value": tag,
+                    "timestamp": pd.Timestamp.now(),
+                    "role": "primary_tagger" if document['tagging_status'] == "unprocessed" else "secondary_tagger"
+                }
+            }
+        elif self.mode == "VALIDATION":
+            processed_document = document
+            if "tagged_by" not in processed_document:
+                processed_document["tagged_by"] = []
+            processed_document["tagged_by"].append({
                 "tagger_id": self.tagger,
                 "tag_value": tag,
                 "timestamp": pd.Timestamp.now(),
-                "role": "primary_tagger" if document['tagging_status'] == "unprocessed" else "secondary_tagger"
-            }
-        }
+                "role": "validator"
+            })
 
-        # Add or update the processed document
         self._increment_batch_processed_count(document_id)
         self._add_or_update_processed_document(processed_document)
 
@@ -315,13 +339,11 @@ class DiscogsCoverTagger:
         if self.batch_processed_count >= self.batch_size:
             self.write_processed_documents_to_db()
             self.prepare_next_batch()
-            self.batch_prepared = True  # Set the flag here
+            self.batch_prepared = True
         else:
-            self.batch_prepared = False  # Reset the flag if batch is not prepared
+            self.batch_prepared = False
         
     def _increment_batch_processed_count(self, document_id):
-        # Increment the count only if the document is not already counted
-        # logger.debug(f"These are the processed documents: {self.processed_documents}")
         if not any(doc["_id"] == document_id for doc in self.processed_documents):
             self.batch_processed_count += 1
             logger.debug(f"Incremented batch_processed_count to {self.batch_processed_count}")
@@ -329,25 +351,23 @@ class DiscogsCoverTagger:
             logger.debug(f"Document {document_id} already counted in the batch")
 
     def _add_or_update_processed_document(self, processed_document):
-        # Check if the document is already in the processed_documents list
         for i, doc in enumerate(self.processed_documents):
             if doc["_id"] == processed_document["_id"]:
-                # Update the existing document
                 self.processed_documents[i] = processed_document
                 logger.debug(f"Updated processed document: {processed_document['_id']} with tag: {processed_document['tag']}")
                 return
-        # If not found, add the new document
         self.processed_documents.append(processed_document)
         logger.debug(f"Added new processed document: {processed_document['_id']} with tag: {processed_document['tag']}")
 
     def write_processed_documents_to_db(self):
         self.db_manager.update_batch_tagging_status(self.processed_documents)
         logger.info(f"Batch of {len(self.processed_documents)} documents written to the database.")
-        # logger.debug(f"Processed documents overview: {self.processed_documents}")
         self.processed_documents = []
 
     def retrieve_unprocessed_covers(self):
-        self.documents = self.db_manager.retrieve_unprocessed_documents(limit=self.batch_size, update_status=True, as_list=True)
+        self.documents = self.db_manager.retrieve_unprocessed_documents(
+            limit=self.batch_size, update_status=True, as_list=True, mode=self.mode, tagger=self.tagger
+        )
         self.current_batch_ids = set(doc['_id'] for doc in self.documents)
         self.batch_processed_count = 0
         logger.info(f"Retrieved {len(self.documents)} unprocessed documents.")
@@ -358,7 +378,9 @@ class DiscogsCoverTagger:
             threading.Thread(target=self._fetch_documents_async).start()
 
     def _fetch_documents_async(self):
-        new_documents = self.db_manager.retrieve_unprocessed_documents(limit=self.batch_size, update_status=True, as_list=True)
+        new_documents = self.db_manager.retrieve_unprocessed_documents(
+            limit=self.batch_size, update_status=True, as_list=True, mode=self.mode, tagger=self.tagger
+        )
         for doc in new_documents:
             self.document_queue.put(doc)
         logger.info(f"Fetched {len(new_documents)} new documents asynchronously.")
@@ -385,9 +407,9 @@ class DiscogsCoverTagger:
                 logger.debug("Not enough documents in the queue. Fetching more documents asynchronously.")
                 self.retrieve_unprocessed_covers_async()
 
-            self.current_index = 0  # Reset current_index to 0 for the new batch
+            self.current_index = 0
             logger.debug(f"Reset current_index to {self.current_index}")
-            self.gui_manager.update_gui()  # Ensure the GUI is updated with the new batch
+            self.gui_manager.update_gui()
         else:
             logger.debug("Batch processed count has not reached batch size. Moving to the next document.")
             logger.debug(f"Current index before increment: {self.current_index}")
@@ -397,15 +419,13 @@ class DiscogsCoverTagger:
                 self.current_index = 0
                 logger.debug(f"Current index reset to {self.current_index}")
             logger.debug(f"Updated current_index to {self.current_index}")
-            self.gui_manager.update_gui()  # Ensure the GUI is updated with the new batch
+            self.gui_manager.update_gui()
 
     def get_tagger_identity(self):
-        # Get the computer name through multiple methods for rigour + cross platform
         computer_name_01 = platform.node()
         computer_name_02 = socket.gethostname()
         computer_name_03 = os.getenv("COMPUTER_NAME")
         
-        # Evaluate the computer names
         if computer_name_01 == computer_name_02 or computer_name_01 == computer_name_03:
             eval_computer_name = computer_name_01
         elif computer_name_02 == computer_name_03:
@@ -413,7 +433,6 @@ class DiscogsCoverTagger:
         else:
             raise Exception("Computer names do not match.")
         
-        # Map the computer name to a unique identifier, maybe use a hash function
         pc_identity_mapping = {
             "DESKTOP-FMMNKQ2": "Gabriel"
         }
@@ -425,7 +444,7 @@ def main():
     db_manager = DatabaseManager(
         uri=mongo_uri, db_name="album_covers", collection_name="fiveK-albums-sample"
     )
-    app = DiscogsCoverTagger(db_manager=db_manager)
+    app = DiscogsCoverTagger(db_manager=db_manager, mode=MODE)
     app.gui_manager.run_main_gui_loop()
 
 if __name__ == "__main__":
