@@ -83,17 +83,23 @@ class DatabaseManager:
         )
 
     def update_batch_tagging_status(self, documents: list) -> None:
+        bulk_operations = []
         for doc in documents:
-            self.collection.update_one(
-                {"_id": doc["_id"]},
-                {
-                    "$set": {
-                        "tagging_status": doc["tagging_status"],
-                        "tag": doc["tag"],
-                        "tagged_by": doc["tagged_by"],
+            bulk_operations.append(
+                pymongo.UpdateOne(
+                    {"_id": doc["_id"]},
+                    {
+                        "$set": {
+                            "tagging_status": doc["tagging_status"],
+                            "tag": doc["tag"],
+                            "tagged_by": doc["tagged_by"],
+                        }
                     }
-                },
+                )
             )
+        
+        if bulk_operations:
+            self.collection.bulk_write(bulk_operations)
 
     def test_connection(self) -> bool:
         try:
