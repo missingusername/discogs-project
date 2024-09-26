@@ -153,7 +153,7 @@ def process_current_image():
     document["tagging_status"] = "processed"
     document["tag"] = category
     document["tagged_by"] = get_username()  # Add the username
-    print(f"Tagged as {category} by {document['tagged_by']}")
+    print(f"Master {document['master_id']} Tagged as {category} by {document['tagged_by']}")
 
     # Update the document in the database
     sample_collection.update_one(
@@ -265,7 +265,6 @@ client = pymongo.MongoClient(mongo_uri)
 db = client["album_covers"]
 sample_collection = db["fiveK-albums-sample-copy"]
 queue = get_and_update_objects(sample_collection, 15, "master_id")
-print(f"Initial queue: {queue}")
 
 # Create widgets
 create_widgets()
