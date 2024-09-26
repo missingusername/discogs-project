@@ -9,7 +9,7 @@ from io import BytesIO
 
 # Global variables
 queue = []
-processed_images = []  # Add this line
+processed_images = []
 current_image = None
 image_label = None
 info_label = None
@@ -18,6 +18,7 @@ progress_label = None
 cover_album_progressbar = None
 cover_album_label = None
 current_index = 0
+processed_counter = 0  # Add this line
 
 def get_and_update_objects(sample_collection, n, sort_field):
     print(f"Retrieving {n} objects sorted by {sort_field} where tagging_status is 'unprocessed'...")
@@ -75,7 +76,7 @@ def create_button_frame():
 
 def create_info_label():
     global info_label
-    info_label = ctk.CTkLabel(master_frame, text="Index: 0, Master ID: N/A, Tag: N/A", font=("Helvetica", 14))
+    info_label = ctk.CTkLabel(master_frame, text="Index: 0, Master ID: N/A, Tag: N/A, Tagged By: N/A", font=("Helvetica", 14))
     info_label.pack(pady=5)
 
 def create_progress_frame():
@@ -94,15 +95,15 @@ def create_progress_frame():
     cover_percentage = (cover_count / processed_elements * 100) if processed_elements > 0 else 0
 
     progress_label = ctk.CTkLabel(progress_frame, text=f"{processed_elements}/{total_elements} covers tagged", font=("Helvetica", 14))
-    progress_label.pack(side="top", anchor="w", padx=10, pady=5)
+    progress_label.pack(side="top", anchor="center", padx=10, pady=5)
 
     progressbar = ctk.CTkProgressBar(progress_frame, orientation="horizontal")
     progressbar.pack(side="top", fill="x", padx=10, pady=5)
     progressbar.set(processed_elements / total_elements if total_elements > 0 else 0)
 
     cover_album_label = ctk.CTkLabel(progress_frame, text=f"{cover_count} covers ({cover_percentage:.2f}%), {vinyl_count} vinyls ({vinyl_percentage:.2f}%), {other_count} others ({other_percentage:.2f}%)", font=("Helvetica", 14))
-    cover_album_label.pack(side="top", anchor="w", padx=10, pady=5)
-    
+    cover_album_label.pack(side="top", anchor="center", padx=10, pady=5)
+
 def create_image_label():
     global image_label
     image_label = ctk.CTkLabel(master_frame, text="")
@@ -125,10 +126,18 @@ def get_category_count(category):
     return sample_collection.count_documents({"tag": category})
 
 def on_button_click(value):
+    global current_index, processed_counter
     print(f"Button clicked: {value}")
     user_input_var.set(value)
     process_current_image()
-    on_next_button_click()
+    processed_counter += 1
+    if processed_counter % 10 == 0:
+        refill_queue()
+    if current_index < len(queue) - 1:
+        current_index += 1
+        display_image()
+    else:
+        print("No more images.")
 
 def process_current_image():
     global queue, processed_images
@@ -149,9 +158,6 @@ def process_current_image():
     # Add to processed images if not already in the list
     if document not in processed_images:
         processed_images.append(document)
-
-    # Refill the queue if necessary
-    refill_queue()
 
     # Update progress and category counts
     update_progress_and_counts()
@@ -177,17 +183,10 @@ def update_info_label():
         index = document["index"]
         master_id = document["master_id"]
         tag = document["tag"]
-        info_label.configure(text=f"Index: {index}\nMaster ID: {master_id}\nTag: {tag}")
+        tagged_by = document.get("tagged_by", "N/A")  # Get the tagged_by field, default to "N/A" if not present
+        info_label.configure(text=f"Index: {index}\nMaster ID: {master_id}\nTag: {tag}\nTagged By: {tagged_by}")
     else:
-        info_label.configure(text="Index: 0, Master ID: N/A, Tag: N/A")
-        
-def on_back_button_click():
-    global current_index
-    if current_index > 0:
-        current_index -= 1
-        display_image()
-    else:
-        print("No previous images.")
+        info_label.configure(text="Index: 0, Master ID: N/A, Tag: N/A, Tagged By: N/A")
 
 def on_next_button_click():
     global current_index
@@ -196,18 +195,14 @@ def on_next_button_click():
         display_image()
     else:
         print("No more images.")
-        refill_queue()
 
-def on_button_click(value):
+def on_back_button_click():
     global current_index
-    print(f"Button clicked: {value}")
-    user_input_var.set(value)
-    process_current_image()
-    if current_index < len(queue) - 1:
-        current_index += 1
+    if current_index > 0:
+        current_index -= 1
         display_image()
     else:
-        print("No more images.")
+        print("No previous images.")
 
 def on_key_press(event):
     if event.keysym == 'Left':
@@ -217,10 +212,9 @@ def on_key_press(event):
 
 def refill_queue():
     global queue
-    if len(queue) <= 5:
-        new_objects = get_and_update_objects(sample_collection, 10, "master_id")
-        queue.extend(new_objects)
-        print(f"Queue refilled. New queue length: {len(queue)}")
+    new_objects = get_and_update_objects(sample_collection, 10, "master_id")
+    queue.extend(new_objects)
+    print(f"Queue refilled. New queue length: {len(queue)}")
 
 def reset_processing_objects():
     global queue
@@ -264,3 +258,8 @@ display_image()
 app.protocol("WM_DELETE_WINDOW", on_closing)
 
 app.mainloop()
+
+#questions
+#back and forwards:
+# - should we keep it so that you only go backwards and forwards in your own session queue?
+# - or should we keep it so that you can go back and forth in the whole database, and see things tagged by others?
