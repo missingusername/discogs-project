@@ -1,26 +1,35 @@
 import customtkinter as ctk
-from tkinter import filedialog
 from PIL import Image
-import pandas as pd
 import os
 import pymongo
 from dotenv import load_dotenv
 from io import BytesIO
 
 # Global variables
-queue = []
-processed_images = []
-current_image = None
-image_label = None
-info_label = None
-progressbar = None
-progress_label = None
-cover_album_progressbar = None
-cover_album_label = None
-current_index = 0
-processed_counter = 0  # Add this line
+queue = []  # Queue of images to be tagged
+processed_images = []   # List of processed images
+current_image = None    # Current image being displayed
+image_label = None  # Label to display the image
+info_label = None   # Label to display the index, master ID, tag, and tagged by information
+progressbar = None  # Progress bar to display the progress of the tagging process
+progress_label = None   # Label to display the progress of the tagging process
+cover_album_progressbar = None      # Progress bar for the number of covers, vinyls, and others
+cover_album_label = None    # Label to display the number of covers, vinyls, and others
+current_index = 0   # Index of the current image being displayed
+processing_threshold = 5  # If the number of unprocessed objects in the queue is less than this, refill the queue.
 
 def get_and_update_objects(sample_collection, n, sort_field):
+    """
+    Retrieve and update objects from the database.
+
+    Args:
+        sample_collection (pymongo.collection.Collection): The MongoDB collection to query.
+        n (int): The number of objects to retrieve.
+        sort_field (str): The field to sort the objects by.
+
+    Returns:
+        list: A list of updated objects.
+    """    
     print(f"Retrieving {n} objects sorted by {sort_field} where tagging_status is 'unprocessed'...")
     results = sample_collection.find({"tagging_status": "unprocessed"}).sort(sort_field, pymongo.ASCENDING).limit(n)
     updated_objects = []
@@ -33,7 +42,7 @@ def get_and_update_objects(sample_collection, n, sort_field):
             "image_data": result["image_data"],
             "tagging_status": "processing",
             "tag": "not tagged",
-            "index": sample_collection.count_documents({"master_id": {"$lt": result["master_id"]}})  # Calculate index based on sorted master_id
+            "index": sample_collection.count_documents({"_id": {"$lt": result["_id"]}}) + 1  # Calculate index
         })
 
     sample_collection.update_many(
@@ -95,14 +104,14 @@ def create_progress_frame():
     cover_percentage = (cover_count / processed_elements * 100) if processed_elements > 0 else 0
 
     progress_label = ctk.CTkLabel(progress_frame, text=f"{processed_elements}/{total_elements} covers tagged", font=("Helvetica", 14))
-    progress_label.pack(side="top", anchor="center", padx=10, pady=5)
+    progress_label.pack(side="top", anchor="w", padx=10, pady=5)
 
     progressbar = ctk.CTkProgressBar(progress_frame, orientation="horizontal")
     progressbar.pack(side="top", fill="x", padx=10, pady=5)
     progressbar.set(processed_elements / total_elements if total_elements > 0 else 0)
 
     cover_album_label = ctk.CTkLabel(progress_frame, text=f"{cover_count} covers ({cover_percentage:.2f}%), {vinyl_count} vinyls ({vinyl_percentage:.2f}%), {other_count} others ({other_percentage:.2f}%)", font=("Helvetica", 14))
-    cover_album_label.pack(side="top", anchor="center", padx=10, pady=5)
+    cover_album_label.pack(side="top", anchor="w", padx=10, pady=5)
 
 def create_image_label():
     global image_label
@@ -126,13 +135,10 @@ def get_category_count(category):
     return sample_collection.count_documents({"tag": category})
 
 def on_button_click(value):
-    global current_index, processed_counter
+    global current_index
     print(f"Button clicked: {value}")
     user_input_var.set(value)
     process_current_image()
-    processed_counter += 1
-    if processed_counter % 10 == 0:
-        refill_queue()
     if current_index < len(queue) - 1:
         current_index += 1
         display_image()
@@ -158,6 +164,12 @@ def process_current_image():
     # Add to processed images if not already in the list
     if document not in processed_images:
         processed_images.append(document)
+
+    # Refill the queue if necessary. check how many objects in the queue have "tagging_status" = "processing", if less than the threshold, refill the queue.
+    unprocessed_queue_count = sum(1 for doc in queue if doc["tagging_status"] == "processing")
+    print(f"Unprocessed queue: {unprocessed_queue_count}")
+    if unprocessed_queue_count <= processing_threshold:
+        refill_queue()
 
     # Update progress and category counts
     update_progress_and_counts()
@@ -195,6 +207,7 @@ def on_next_button_click():
         display_image()
     else:
         print("No more images.")
+        refill_queue()
 
 def on_back_button_click():
     global current_index
@@ -242,6 +255,9 @@ app.geometry("520x770")
 master_frame = ctk.CTkFrame(app, fg_color="#202027")
 master_frame.pack(expand=True, fill="both")
 
+app.bind('<Left>', on_key_press)
+app.bind('<Right>', on_key_press)
+
 # Initialize the database connection and retrieve entries
 load_dotenv()
 mongo_uri = os.getenv("MONGODB_URI")
@@ -249,6 +265,7 @@ client = pymongo.MongoClient(mongo_uri)
 db = client["album_covers"]
 sample_collection = db["fiveK-albums-sample-copy"]
 queue = get_and_update_objects(sample_collection, 15, "master_id")
+print(f"Initial queue: {queue}")
 
 # Create widgets
 create_widgets()
