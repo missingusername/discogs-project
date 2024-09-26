@@ -18,6 +18,32 @@ cover_album_label = None    # Label to display the number of covers, vinyls, and
 current_index = 0   # Index of the current image being displayed
 processing_threshold = 5  # If the number of unprocessed objects in the queue is less than this, refill the queue.
 
+class Document:
+    def __init__(self, master_id, image_data, tagging_status="unprocessed", tag="not tagged", index=0, tagged_by="N/A"):
+        self.master_id = master_id
+        self.image_data = image_data
+        self.tagging_status = tagging_status
+        self.tag = tag
+        self.index = index
+        self.tagged_by = tagged_by
+
+    def update_status(self, status):
+        self.tagging_status = status
+
+    def update_tag(self, tag, tagged_by):
+        self.tag = tag
+        self.tagged_by = tagged_by
+
+    def to_dict(self):
+        return {
+            "master_id": self.master_id,
+            "image_data": self.image_data,
+            "tagging_status": self.tagging_status,
+            "tag": self.tag,
+            "index": self.index,
+            "tagged_by": self.tagged_by
+        }
+
 def get_and_update_objects(sample_collection, n, sort_field):
     """
     Retrieve and update objects from the database.
@@ -37,13 +63,14 @@ def get_and_update_objects(sample_collection, n, sort_field):
 
     for result in results:
         master_ids_to_update.append(result["master_id"])
-        updated_objects.append({
-            "master_id": result["master_id"],
-            "image_data": result["image_data"],
-            "tagging_status": "processing",
-            "tag": "not tagged",
-            "index": sample_collection.count_documents({"_id": {"$lt": result["_id"]}}) + 1  # Calculate index
-        })
+        document = Document(
+            master_id=result["master_id"],
+            image_data=result["image_data"],
+            tagging_status="processing",
+            tag="not tagged",
+            index=sample_collection.count_documents({"master_id": {"$lt": result["master_id"]}}) + 1
+        )
+        updated_objects.append(document)
 
     sample_collection.update_many(
         {"master_id": {"$in": master_ids_to_update}},
@@ -56,8 +83,7 @@ def get_and_update_objects(sample_collection, n, sort_field):
 def display_image():
     if queue:
         document = queue[current_index]  # Use current_index
-        image_data = document["image_data"]
-        image = Image.open(BytesIO(image_data))
+        image = Image.open(BytesIO(document.image_data))
         current_image = ctk.CTkImage(image, size=(500, 500))
         image_label.configure(image=current_image)
         image_label.image = current_image
@@ -150,15 +176,14 @@ def process_current_image():
 
     category = user_input_var.get()
     document = queue[current_index]
-    document["tagging_status"] = "processed"
-    document["tag"] = category
-    document["tagged_by"] = get_username()  # Add the username
-    print(f"Master {document['master_id']} Tagged as {category} by {document['tagged_by']}")
+    document.update_status("processed")
+    document.update_tag(category, get_username())
+    print(f"Master {document.master_id} Tagged as {category} by {document.tagged_by}")
 
     # Update the document in the database
     sample_collection.update_one(
-        {"master_id": document["master_id"]},
-        {"$set": {"tagging_status": "processed", "tag": category, "tagged_by": document["tagged_by"]}}
+        {"master_id": document.master_id},
+        {"$set": document.to_dict()}
     )
 
     # Add to processed images if not already in the list
@@ -166,7 +191,7 @@ def process_current_image():
         processed_images.append(document)
 
     # Refill the queue if necessary. check how many objects in the queue have "tagging_status" = "processing", if less than the threshold, refill the queue.
-    unprocessed_queue_count = sum(1 for doc in queue if doc["tagging_status"] == "processing")
+    unprocessed_queue_count = sum(1 for doc in queue if doc.tagging_status == "processing")
     print(f"Unprocessed queue: {unprocessed_queue_count}")
     if unprocessed_queue_count <= processing_threshold:
         refill_queue()
@@ -192,11 +217,7 @@ def update_progress_and_counts():
 def update_info_label():
     if queue:
         document = queue[current_index]  # Use current_index
-        index = document["index"]
-        master_id = document["master_id"]
-        tag = document["tag"]
-        tagged_by = document.get("tagged_by", "N/A")  # Get the tagged_by field, default to "N/A" if not present
-        info_label.configure(text=f"Index: {index}\nMaster ID: {master_id}\nTag: {tag}\nTagged By: {tagged_by}")
+        info_label.configure(text=f"Index: {document.index}\nMaster ID: {document.master_id}\nTag: {document.tag}\nTagged By: {document.tagged_by}")
     else:
         info_label.configure(text="Index: 0, Master ID: N/A, Tag: N/A, Tagged By: N/A")
 
@@ -231,7 +252,7 @@ def refill_queue():
 
 def reset_processing_objects():
     global queue
-    master_ids_to_reset = [document["master_id"] for document in queue if document["tagging_status"] == "processing"]
+    master_ids_to_reset = [document.master_id for document in queue if document.tagging_status == "processing"]
     if master_ids_to_reset:
         sample_collection.update_many(
             {"master_id": {"$in": master_ids_to_reset}},
@@ -274,8 +295,3 @@ display_image()
 app.protocol("WM_DELETE_WINDOW", on_closing)
 
 app.mainloop()
-
-#questions
-#back and forwards:
-# - should we keep it so that you only go backwards and forwards in your own session queue?
-# - or should we keep it so that you can go back and forth in the whole database, and see things tagged by others?
