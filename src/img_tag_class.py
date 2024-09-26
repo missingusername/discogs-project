@@ -14,13 +14,13 @@ import pymongo.cursor
 
 from utils.logger_utils import get_logger
 
-logger = get_logger(__name__)
+BATCH_SIZE = 16
+LOG_LEVEL = "DEBUG"
+
+logger = get_logger(__name__, level=LOG_LEVEL)
 
 # Load environment variables
 load_dotenv()
-
-BATCH_SIZE = 16
-
 
 class DatabaseManager:
     def __init__(self, uri: str, db_name: str, collection_name: str):
@@ -104,7 +104,6 @@ class DiscogsCoverTagger:
         self.db_manager = db_manager
         self.tagger = self.get_tagger_identity()
         self.current_index = 0
-        self.processed_indices = set()
         self.documents = []
         self.processed_documents = []
         
@@ -113,6 +112,7 @@ class DiscogsCoverTagger:
         self.current_batch_ids = set()
         self.document_queue = queue.Queue()
         self.is_fetching = False
+        self.batch_prepared = False
 
         # initial pictures
         self.retrieve_unprocessed_covers()
@@ -155,33 +155,56 @@ class DiscogsCoverTagger:
         tag = self.user_input_var.get()
         document_id = document["_id"]
 
-        if document_id in self.current_batch_ids:
-            processed_document = {
-                "_id": document_id,
-                "tagging_status": "tagged",
-                "tag": tag,
-                "tagged_by": {
-                    "tagger_id": self.tagger,
-                    "timestamp": pd.Timestamp.now(),
-                    "role": "primary_tagger" if document['tagging_status'] == "unprocessed" else "secondary_tagger"
-                }
+        processed_document = {
+            "_id": document_id,
+            "tagging_status": "tagged",
+            "tag": tag,
+            "tagged_by": {
+                "tagger_id": self.tagger,
+                "timestamp": pd.Timestamp.now(),
+                "role": "primary_tagger" if document['tagging_status'] == "unprocessed" else "secondary_tagger"
             }
+        }
 
-            self.processed_documents.append(processed_document)
-            self.processed_indices.add(self.current_index)  # Mark this index as processed
-            self.batch_processed_count += 1
+        # Add or update the processed document
+        self._increment_batch_processed_count(document_id)
+        self._add_or_update_processed_document(processed_document)
 
-            logger.debug(f"Processed document {self.batch_processed_count}/{self.batch_size}")
+        logger.debug(f"Processed document {self.batch_processed_count}/{self.batch_size}")
 
-            if self.batch_processed_count >= self.batch_size:
-                self.write_processed_documents_to_db()
-                self.prepare_next_batch()
+        if self.batch_processed_count >= self.batch_size:
+            self.write_processed_documents_to_db()
+            self.prepare_next_batch()
+            self.batch_prepared = True  # Set the flag here
+        else:
+            self.batch_prepared = False  # Reset the flag if batch is not prepared
         
+    def _increment_batch_processed_count(self, document_id):
+        # Increment the count only if the document is not already counted
+        # logger.debug(f"These are the processed documents: {self.processed_documents}")
+        if not any(doc["_id"] == document_id for doc in self.processed_documents):
+            self.batch_processed_count += 1
+            logger.debug(f"Incremented batch_processed_count to {self.batch_processed_count}")
+        else:
+            logger.debug(f"Document {document_id} already counted in the batch")
+
+    def _add_or_update_processed_document(self, processed_document):
+        # Check if the document is already in the processed_documents list
+        for i, doc in enumerate(self.processed_documents):
+            if doc["_id"] == processed_document["_id"]:
+                # Update the existing document
+                self.processed_documents[i] = processed_document
+                logger.debug(f"Updated processed document: {processed_document['_id']} with tag: {processed_document['tag']}")
+                return
+        # If not found, add the new document
+        self.processed_documents.append(processed_document)
+        logger.debug(f"Added new processed document: {processed_document['_id']} with tag: {processed_document['tag']}")
+
     def write_processed_documents_to_db(self):
         self.db_manager.update_batch_tagging_status(self.processed_documents)
         logger.info(f"Batch of {len(self.processed_documents)} documents written to the database.")
+        # logger.debug(f"Processed documents overview: {self.processed_documents}")
         self.processed_documents = []
-        self.batch_processed_count = 0
 
     def retrieve_unprocessed_covers(self):
         self.documents = self.db_manager.retrieve_unprocessed_documents(limit=self.batch_size, update_status=True, as_list=True)
@@ -199,28 +222,42 @@ class DiscogsCoverTagger:
         for doc in new_documents:
             self.document_queue.put(doc)
         logger.info(f"Fetched {len(new_documents)} new documents asynchronously.")
+        logger.debug(f"Document queue size: {self.document_queue.qsize()} images to be processed")
         self.is_fetching = False
 
     def prepare_next_batch(self):
-        # Only prepare a new batch if all documents in the current batch have been processed
-        if len(self.processed_indices) == len(self.documents):
+        logger.debug("Preparing next batch of documents.")
+        logger.debug(f"Document queue size: {self.document_queue.qsize()}")
+        logger.debug(f"The index is {self.batch_processed_count} and the length of documents is {len(self.documents)}")
+        
+        if self.batch_processed_count >= self.batch_size:
+            logger.debug("Batch processed count reached batch size. Resetting state.")
             self.documents = []
             self.current_batch_ids = set()
             self.batch_processed_count = 0
-            self.processed_indices.clear()
-            
+
             while len(self.documents) < self.batch_size and not self.document_queue.empty():
                 doc = self.document_queue.get()
                 self.documents.append(doc)
                 self.current_batch_ids.add(doc['_id'])
 
             if len(self.documents) < self.batch_size:
+                logger.debug("Not enough documents in the queue. Fetching more documents asynchronously.")
                 self.retrieve_unprocessed_covers_async()
 
-            self.current_index = 0
+            self.current_index = 0  # Reset current_index to 0 for the new batch
+            logger.debug(f"Reset current_index to {self.current_index}")
+            self.update_gui()  # Ensure the GUI is updated with the new batch
         else:
-            # Find the first unprocessed document in the current batch
-            self.current_index = next(i for i in range(len(self.documents)) if i not in self.processed_indices)
+            logger.debug("Batch processed count has not reached batch size. Moving to the next document.")
+            logger.debug(f"Current index before increment: {self.current_index}")
+            self.current_index += 1
+            logger.debug(f"Current index after increment: {self.current_index}")
+            if self.current_index >= len(self.documents):
+                self.current_index = 0
+                logger.debug(f"Current index reset to {self.current_index}")
+            logger.debug(f"Updated current_index to {self.current_index}")
+            self.update_gui()  # Ensure the GUI is updated with the new batch
 
     def update_gui(self):
         if not self.documents or self.current_index >= len(self.documents):
@@ -245,7 +282,7 @@ class DiscogsCoverTagger:
         if self.current_index < len(self.documents):
             self.update_gui()
         else:
-            print("No more images.")
+            logger.info("No more unprocessed documents available.")
 
     def create_widgets(self):
         self.create_button_frame()
@@ -283,13 +320,13 @@ class DiscogsCoverTagger:
         self.progress_frame.grid_columnconfigure(1, weight=1)
 
     def update_progress_bars(self):
-        tagged_images_count = len(self.processed_indices)
+        tagged_images_count = self.batch_processed_count
         progress = tagged_images_count / len(self.documents)
         self.progressbar.set(progress)
         self.progress_label.configure(text=f"{tagged_images_count}/{len(self.documents)} covers tagged")
 
-        covers_count = sum(1 for i, doc in enumerate(self.documents) if i in self.processed_indices and doc['tag'] == 'cover')
-        albums_count = sum(1 for i, doc in enumerate(self.documents) if i in self.processed_indices and doc['tag'] == 'vinyl')
+        covers_count = sum(1 for doc in self.processed_documents if doc['tag'] == 'cover')
+        albums_count = sum(1 for doc in self.processed_documents if doc['tag'] == 'vinyl')
         total_tagged = covers_count + albums_count
 
         cover_album_progress = covers_count / total_tagged if total_tagged > 0 else 0
@@ -297,23 +334,21 @@ class DiscogsCoverTagger:
         self.cover_album_label.configure(text=f"{covers_count} covers / {albums_count} vinyls")
 
     def on_button_click(self, value):
-        logger.info(f"Button clicked: {value}")
+        logger.debug(f"Button clicked: {value}")
         self.user_input_var.set(value)
         self.process_current_image()
-        self.on_next_button_click()
+        if not self.batch_prepared:  # Check the flag here
+            self.on_next_button_click()
 
     def on_next_button_click(self):
-        self.current_index += 1
-        if self.current_index < len(self.documents):
-            # If we've reached a processed document, skip to the next unprocessed one
-            while self.current_index in self.processed_indices and self.current_index < len(self.documents):
-                self.current_index += 1
-            if self.current_index < len(self.documents):
-                self.update_gui()
-            else:
-                self.prepare_next_batch()
+        logger.debug(f"Current index before on_next_button_click: {self.current_index}")
+        if self.current_index < len(self.documents) - 1:
+            self.current_index += 1
+            logger.debug(f"Current index after increment in on_next_button_click: {self.current_index}")
+            self.update_gui()
         else:
-            self.prepare_next_batch()
+            logger.info("Reached the end of the current batch.")
+            return
 
         if not self.documents:
             logger.info("No more unprocessed documents available.")
@@ -325,11 +360,10 @@ class DiscogsCoverTagger:
             self.retrieve_unprocessed_covers_async()
 
     def on_back_button_click(self):
+        logger.debug(f"Current index before on_back_button_click: {self.current_index}")
         if self.current_index > 0:
             self.current_index -= 1
-            # If we've reached a processed document, skip to the previous unprocessed one
-            while self.current_index in self.processed_indices and self.current_index > 0:
-                self.current_index -= 1
+            logger.debug(f"Current index after decrement in on_back_button_click: {self.current_index}")
             self.update_gui()
 
     def run_main_gui_loop(self):
