@@ -53,6 +53,14 @@ class DatabaseManager:
             return documents
         
         return cursor
+    
+    def reset_current_batch_status(self, batch_ids):
+        if batch_ids:
+            self.collection.update_many(
+                {"_id": {"$in": list(batch_ids)}},
+                {"$set": {"tagging_status": "unprocessed"}}
+            )
+            logger.info("Reset status of current batch documents to 'unprocessed'.")
 
     def update_documents_to_in_progress(self, cursor: pymongo.cursor.Cursor) -> None:
         # Collect the IDs of the documents to update
@@ -116,9 +124,7 @@ class GuiManager:
         self.initial_frame = ctk.CTkFrame(self.master_frame, corner_radius=10)
         self.initial_frame.pack(expand=True)
 
-        self.label = ctk.CTkLabel(
-            self.initial_frame, text="Select an image folder to process"
-        )
+        self.label = ctk.CTkLabel(self.initial_frame, text="")
         self.label.pack(pady=10, padx=20)
 
         self.user_input_var = ctk.StringVar()
@@ -129,6 +135,12 @@ class GuiManager:
        
         self.create_widgets()
         self.display_image()
+
+        self.app.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def on_close(self):
+        self.tagger.reset_current_batch_status()
+        self.app.destroy()
 
     def create_widgets(self):
         self.create_button_frame()
@@ -192,7 +204,6 @@ class GuiManager:
 
         document = self.tagger.documents[self.tagger.current_index]
         image_data = document['image_data']
-        category = document['tagging_status']
 
         img = Image.open(BytesIO(image_data))
         self.current_image = ctk.CTkImage(img, size=(500, 500))
@@ -200,7 +211,13 @@ class GuiManager:
         self.image_label.configure(image=self.current_image)
         self.image_label.image = self.current_image
 
-        self.info_label.configure(text=f"Image {self.tagger.current_index + 1} out of {len(self.tagger.documents)}\nCategory: {'Not tagged' if category == 'unprocessed' else category}")
+        artist_names = document.get('artist_names', ['Unknown Artist'])
+        artist = ', '.join(artist_names)
+        album_title = document.get('title', 'Unknown Album')
+        release_year = document.get('year', 'Unknown Year')
+        self.label.configure(text=f"Artist: {artist}, Album: {album_title}, Year: {release_year}")
+
+        self.info_label.configure(text=f"Image {self.tagger.current_index + 1} out of {len(self.tagger.documents)}")
 
         self.update_progress_bars()
 
@@ -265,6 +282,9 @@ class DiscogsCoverTagger:
         self.retrieve_unprocessed_covers()
         
         self.gui_manager = GuiManager(self)
+
+    def reset_current_batch_status(self):
+        self.db_manager.reset_current_batch_status(self.current_batch_ids)
 
     def process_current_image(self):
         if self.current_index >= len(self.documents):
