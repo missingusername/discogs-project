@@ -1,5 +1,7 @@
 from io import BytesIO
+import json
 import os
+from pathlib import Path
 import platform
 import queue
 import socket
@@ -14,15 +16,19 @@ import pymongo.cursor
 
 from utils.logger_utils import get_logger
 
-BATCH_SIZE = 16
-LOG_LEVEL = "INFO"
-MODE = "TAGGING"
+# Load configuration from JSON file
+config_path = Path(__file__).resolve().parents[0] / "config" / "gui_config.json"
+with open(config_path, 'r') as config_file:
+    config = json.load(config_file)
+
+BATCH_SIZE = config['BATCH_SIZE']
+LOG_LEVEL = config['LOG_LEVEL']
+MODE = config['MODE']
 
 logger = get_logger(__name__, level=LOG_LEVEL)
 
 # Load environment variables
 load_dotenv()
-
 
 class DatabaseManager:
     def __init__(self, uri: str, db_name: str, collection_name: str):

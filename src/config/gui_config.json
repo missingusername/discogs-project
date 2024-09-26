@@ -1,0 +1,5 @@
+{
+    "BATCH_SIZE": 16,
+    "LOG_LEVEL": "INFO",
+    "MODE": "TAGGING"
+  }
