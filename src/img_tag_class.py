@@ -15,7 +15,7 @@ import pymongo.cursor
 from utils.logger_utils import get_logger
 
 BATCH_SIZE = 16
-LOG_LEVEL = "DEBUG"
+LOG_LEVEL = "INFO"
 
 logger = get_logger(__name__, level=LOG_LEVEL)
 
@@ -97,26 +97,9 @@ class DatabaseManager:
         )
         logger.info(f"Found {count} unprocessed documents")
         return count
-
-
-class DiscogsCoverTagger:
-    def __init__(self, db_manager: DatabaseManager):
-        self.db_manager = db_manager
-        self.tagger = self.get_tagger_identity()
-        self.current_index = 0
-        self.documents = []
-        self.processed_documents = []
-        
-        self.batch_size = BATCH_SIZE
-        self.batch_processed_count = 0
-        self.current_batch_ids = set()
-        self.document_queue = queue.Queue()
-        self.is_fetching = False
-        self.batch_prepared = False
-
-        # initial pictures
-        self.retrieve_unprocessed_covers()
-        
+class GuiManager:
+    def __init__(self, tagger):
+        self.tagger = tagger
         self.app = ctk.CTk()
         ctk.set_appearance_mode("System")
         ctk.set_default_color_theme("src/style.json")
@@ -147,12 +130,148 @@ class DiscogsCoverTagger:
         self.create_widgets()
         self.display_image()
 
+    def create_widgets(self):
+        self.create_button_frame()
+        self.create_progress_frame()
+
+    def create_button_frame(self):
+        button_frame = ctk.CTkFrame(self.master_frame, corner_radius=10)
+        button_frame.pack(side="bottom", pady=10)
+        button_padding = 5
+
+        ctk.CTkButton(button_frame, text="Vinyl", command=lambda: self.on_button_click('vinyl')).grid(row=0, column=0, padx=button_padding, pady=button_padding)
+        ctk.CTkButton(button_frame, text="Other", command=lambda: self.on_button_click('other')).grid(row=0, column=1, padx=button_padding, pady=button_padding)
+        ctk.CTkButton(button_frame, text="Cover", command=lambda: self.on_button_click('cover')).grid(row=0, column=2, padx=button_padding, pady=button_padding)
+        ctk.CTkButton(button_frame, text="Back", command=self.on_back_button_click).grid(row=1, column=0, padx=button_padding, pady=button_padding)
+        ctk.CTkButton(button_frame, text="Next", command=self.on_next_button_click).grid(row=1, column=2, padx=button_padding, pady=button_padding)
+
+    def create_progress_frame(self):
+        self.progress_frame = ctk.CTkFrame(self.master_frame, corner_radius=10)
+        self.progress_frame.pack(pady=10, padx=10, fill="x")
+
+        self.progress_label = ctk.CTkLabel(self.progress_frame, text="0/0 covers tagged", font=("Helvetica", 14))
+        self.progress_label.grid(row=0, column=0, padx=10, pady=5, sticky="w")
+
+        self.progressbar = ctk.CTkProgressBar(self.progress_frame, orientation="horizontal")
+        self.progressbar.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
+        self.progressbar.set(0)
+
+        self.cover_album_label = ctk.CTkLabel(self.progress_frame, text="0 covers / 0 vinyls", font=("Helvetica", 14))
+        self.cover_album_label.grid(row=1, column=0, padx=10, pady=5, sticky="w")
+
+        self.cover_album_progressbar = ctk.CTkProgressBar(self.progress_frame, orientation="horizontal")
+        self.cover_album_progressbar.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
+        self.cover_album_progressbar.set(0)
+
+        self.progress_frame.grid_columnconfigure(1, weight=1)
+
+    def update_progress_bars(self):
+        tagged_images_count = self.tagger.batch_processed_count
+        progress = tagged_images_count / len(self.tagger.documents)
+        self.progressbar.set(progress)
+        self.progress_label.configure(text=f"{tagged_images_count}/{len(self.tagger.documents)} covers tagged")
+
+        covers_count = sum(1 for doc in self.tagger.processed_documents if doc['tag'] == 'cover')
+        albums_count = sum(1 for doc in self.tagger.processed_documents if doc['tag'] == 'vinyl')
+        total_tagged = covers_count + albums_count
+
+        cover_album_progress = covers_count / total_tagged if total_tagged > 0 else 0
+        self.cover_album_progressbar.set(cover_album_progress)
+        self.cover_album_label.configure(text=f"{covers_count} covers / {albums_count} vinyls")
+
+    def display_image(self):
+        if self.tagger.current_index < len(self.tagger.documents):
+            self.update_gui()
+        else:
+            logger.info("No more unprocessed documents available.")
+
+    def update_gui(self):
+        if not self.tagger.documents or self.tagger.current_index >= len(self.tagger.documents):
+            self.info_label.configure(text="No more images to display.")
+            return
+
+        document = self.tagger.documents[self.tagger.current_index]
+        image_data = document['image_data']
+        category = document['tagging_status']
+
+        img = Image.open(BytesIO(image_data))
+        self.current_image = ctk.CTkImage(img, size=(500, 500))
+
+        self.image_label.configure(image=self.current_image)
+        self.image_label.image = self.current_image
+
+        self.info_label.configure(text=f"Image {self.tagger.current_index + 1} out of {len(self.tagger.documents)}\nCategory: {'Not tagged' if category == 'unprocessed' else category}")
+
+        self.update_progress_bars()
+
+    def on_button_click(self, value):
+        logger.debug(f"Button clicked: {value}")
+        self.user_input_var.set(value)
+        self.tagger.process_current_image()
+        if not self.tagger.batch_prepared:  # Check the flag here
+            self.on_next_button_click()
+
+    def on_next_button_click(self):
+        logger.debug(f"Current index before on_next_button_click: {self.tagger.current_index}")
+        if self.tagger.current_index < len(self.tagger.documents) - 1:
+            self.tagger.current_index += 1
+            logger.debug(f"Current index after increment in on_next_button_click: {self.tagger.current_index}")
+            self.update_gui()
+        else:
+            logger.info("Reached the end of the current batch.")
+            return
+
+        if not self.tagger.documents:
+            logger.info("No more unprocessed documents available.")
+        else:
+            self.update_gui()
+
+        # Check if we need to fetch more documents
+        if self.tagger.document_queue.qsize() < self.tagger.batch_size and not self.tagger.is_fetching:
+            self.tagger.retrieve_unprocessed_covers_async()
+
+    def on_back_button_click(self):
+        logger.debug(f"Current index before on_back_button_click: {self.tagger.current_index}")
+        if self.tagger.current_index > 0:
+            self.tagger.current_index -= 1
+            logger.debug(f"Current index after decrement in on_back_button_click: {self.tagger.current_index}")
+            self.update_gui()
+
+    def on_key_press(self, event):
+        if event.keysym == "Left":
+            self.on_button_click("vinyl")
+        elif event.keysym == "Right":
+            self.on_button_click("cover")
+
+    def run_main_gui_loop(self):
+        self.app.mainloop()
+
+class DiscogsCoverTagger:
+    def __init__(self, db_manager: DatabaseManager):
+        self.db_manager = db_manager
+        self.tagger = self.get_tagger_identity()
+        self.current_index = 0
+        self.documents = []
+        self.processed_documents = []
+        
+        self.batch_size = BATCH_SIZE
+        self.batch_processed_count = 0
+        self.current_batch_ids = set()
+        self.document_queue = queue.Queue()
+        self.is_fetching = False
+        self.batch_prepared = False
+
+        # initial pictures
+        self.retrieve_unprocessed_covers()
+        
+        self.gui_manager = GuiManager(self)
+
     def process_current_image(self):
         if self.current_index >= len(self.documents):
             return
 
         document = self.documents[self.current_index]
-        tag = self.user_input_var.get()
+        tag = self.gui_manager.user_input_var.get()
         document_id = document["_id"]
 
         processed_document = {
@@ -247,7 +366,7 @@ class DiscogsCoverTagger:
 
             self.current_index = 0  # Reset current_index to 0 for the new batch
             logger.debug(f"Reset current_index to {self.current_index}")
-            self.update_gui()  # Ensure the GUI is updated with the new batch
+            self.gui_manager.update_gui()  # Ensure the GUI is updated with the new batch
         else:
             logger.debug("Batch processed count has not reached batch size. Moving to the next document.")
             logger.debug(f"Current index before increment: {self.current_index}")
@@ -257,123 +376,7 @@ class DiscogsCoverTagger:
                 self.current_index = 0
                 logger.debug(f"Current index reset to {self.current_index}")
             logger.debug(f"Updated current_index to {self.current_index}")
-            self.update_gui()  # Ensure the GUI is updated with the new batch
-
-    def update_gui(self):
-        if not self.documents or self.current_index >= len(self.documents):
-            self.info_label.configure(text="No more images to display.")
-            return
-
-        document = self.documents[self.current_index]
-        image_data = document['image_data']
-        category = document['tagging_status']
-
-        img = Image.open(BytesIO(image_data))
-        self.current_image = ctk.CTkImage(img, size=(500, 500))
-
-        self.image_label.configure(image=self.current_image)
-        self.image_label.image = self.current_image
-
-        self.info_label.configure(text=f"Image {self.current_index + 1} out of {len(self.documents)}\nCategory: {'Not tagged' if category == 'unprocessed' else category}")
-
-        self.update_progress_bars()
-
-    def display_image(self):
-        if self.current_index < len(self.documents):
-            self.update_gui()
-        else:
-            logger.info("No more unprocessed documents available.")
-
-    def create_widgets(self):
-        self.create_button_frame()
-        self.create_progress_frame()
-
-    def create_button_frame(self):
-        button_frame = ctk.CTkFrame(self.master_frame, corner_radius=10)
-        button_frame.pack(side="bottom", pady=10)
-        button_padding = 5
-
-        ctk.CTkButton(button_frame, text="Vinyl", command=lambda: self.on_button_click('vinyl')).grid(row=0, column=0, padx=button_padding, pady=button_padding)
-        ctk.CTkButton(button_frame, text="Other", command=lambda: self.on_button_click('other')).grid(row=0, column=1, padx=button_padding, pady=button_padding)
-        ctk.CTkButton(button_frame, text="Cover", command=lambda: self.on_button_click('cover')).grid(row=0, column=2, padx=button_padding, pady=button_padding)
-        ctk.CTkButton(button_frame, text="Back", command=self.on_back_button_click).grid(row=1, column=0, padx=button_padding, pady=button_padding)
-        ctk.CTkButton(button_frame, text="Next", command=self.on_next_button_click).grid(row=1, column=2, padx=button_padding, pady=button_padding)
-
-    def create_progress_frame(self):
-        self.progress_frame = ctk.CTkFrame(self.master_frame, corner_radius=10)
-        self.progress_frame.pack(pady=10, padx=10, fill="x")
-
-        self.progress_label = ctk.CTkLabel(self.progress_frame, text="0/0 covers tagged", font=("Helvetica", 14))
-        self.progress_label.grid(row=0, column=0, padx=10, pady=5, sticky="w")
-
-        self.progressbar = ctk.CTkProgressBar(self.progress_frame, orientation="horizontal")
-        self.progressbar.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
-        self.progressbar.set(0)
-
-        self.cover_album_label = ctk.CTkLabel(self.progress_frame, text="0 covers / 0 vinyls", font=("Helvetica", 14))
-        self.cover_album_label.grid(row=1, column=0, padx=10, pady=5, sticky="w")
-
-        self.cover_album_progressbar = ctk.CTkProgressBar(self.progress_frame, orientation="horizontal")
-        self.cover_album_progressbar.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
-        self.cover_album_progressbar.set(0)
-
-        self.progress_frame.grid_columnconfigure(1, weight=1)
-
-    def update_progress_bars(self):
-        tagged_images_count = self.batch_processed_count
-        progress = tagged_images_count / len(self.documents)
-        self.progressbar.set(progress)
-        self.progress_label.configure(text=f"{tagged_images_count}/{len(self.documents)} covers tagged")
-
-        covers_count = sum(1 for doc in self.processed_documents if doc['tag'] == 'cover')
-        albums_count = sum(1 for doc in self.processed_documents if doc['tag'] == 'vinyl')
-        total_tagged = covers_count + albums_count
-
-        cover_album_progress = covers_count / total_tagged if total_tagged > 0 else 0
-        self.cover_album_progressbar.set(cover_album_progress)
-        self.cover_album_label.configure(text=f"{covers_count} covers / {albums_count} vinyls")
-
-    def on_button_click(self, value):
-        logger.debug(f"Button clicked: {value}")
-        self.user_input_var.set(value)
-        self.process_current_image()
-        if not self.batch_prepared:  # Check the flag here
-            self.on_next_button_click()
-
-    def on_next_button_click(self):
-        logger.debug(f"Current index before on_next_button_click: {self.current_index}")
-        if self.current_index < len(self.documents) - 1:
-            self.current_index += 1
-            logger.debug(f"Current index after increment in on_next_button_click: {self.current_index}")
-            self.update_gui()
-        else:
-            logger.info("Reached the end of the current batch.")
-            return
-
-        if not self.documents:
-            logger.info("No more unprocessed documents available.")
-        else:
-            self.update_gui()
-
-        # Check if we need to fetch more documents
-        if self.document_queue.qsize() < self.batch_size and not self.is_fetching:
-            self.retrieve_unprocessed_covers_async()
-
-    def on_back_button_click(self):
-        logger.debug(f"Current index before on_back_button_click: {self.current_index}")
-        if self.current_index > 0:
-            self.current_index -= 1
-            logger.debug(f"Current index after decrement in on_back_button_click: {self.current_index}")
-            self.update_gui()
-
-    def run_main_gui_loop(self):
-        self.app.mainloop()
-
-    def on_key_press(self, event):
-        if event.keysym == "Left":
-            self.on_button_click("vinyl")
-        elif event.keysym == "Right":
-            self.on_button_click("cover")
+            self.gui_manager.update_gui()  # Ensure the GUI is updated with the new batch
 
     def get_tagger_identity(self):
         # Get the computer name through multiple methods for rigour + cross platform
@@ -402,8 +405,7 @@ def main():
         uri=mongo_uri, db_name="album_covers", collection_name="fiveK-albums-sample"
     )
     app = DiscogsCoverTagger(db_manager=db_manager)
-    app.run_main_gui_loop()
-
+    app.gui_manager.run_main_gui_loop()
 
 if __name__ == "__main__":
     main()
