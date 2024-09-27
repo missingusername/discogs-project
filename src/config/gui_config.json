@@ -1,5 +1,8 @@
 {
-    "BATCH_SIZE": 16,
-    "LOG_LEVEL": "INFO",
-    "MODE": "TAGGING"
+  "BATCH_SIZE": 16,
+  "LOG_LEVEL": "INFO",
+  "MODE": "TAGGING",
+  "PC_IDENTITY_MAPPING": {
+      "DESKTOP-FMMNKQ2": "Gabriel"
   }
+}

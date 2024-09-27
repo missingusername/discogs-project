@@ -24,6 +24,7 @@ with open(config_path, 'r') as config_file:
 BATCH_SIZE = config['BATCH_SIZE']
 LOG_LEVEL = config['LOG_LEVEL']
 MODE = config['MODE']
+PC_IDENTITY_MAPPING = config['PC_IDENTITY_MAPPING']
 
 logger = get_logger(__name__, level=LOG_LEVEL)
 
@@ -544,9 +545,7 @@ class DiscogsCoverTagger:
         else:
             raise Exception("Computer names do not match.")
 
-        pc_identity_mapping = {"DESKTOP-FMMNKQ2": "Gabriel"}
-
-        return pc_identity_mapping.get(eval_computer_name, "Unknown")
+        return PC_IDENTITY_MAPPING.get(eval_computer_name, "Unknown")
 
 
 def main():
