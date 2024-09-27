@@ -132,7 +132,7 @@ class GuiManager:
         ctk.set_default_color_theme("src/style.json")
 
         self.app.title("Discogs Cover Tagger")
-        self.app.geometry("520x750")
+        self.app.geometry("520x780")
 
         self.master_frame = ctk.CTkFrame(self.app, fg_color="#202027")
         self.master_frame.pack(expand=True, fill="both")
@@ -147,6 +147,8 @@ class GuiManager:
         self.label.pack(pady=10, padx=20)
 
         self.user_input_var = ctk.StringVar()
+        self.favorite_input_var = ctk.BooleanVar(value=False)
+        self.favorite_button_text = ctk.StringVar(value="Favorite")
         self.image_label = ctk.CTkLabel(self.master_frame, text="")
         self.image_label.pack(expand=True)
         self.info_label = ctk.CTkLabel(
@@ -173,6 +175,7 @@ class GuiManager:
 
     def create_widgets(self):
         self.create_button_frame()
+        self.create_favorite_button_frame()
         self.create_progress_frame()
 
     def create_button_frame(self):
@@ -195,6 +198,21 @@ class GuiManager:
         ctk.CTkButton(
             button_frame, text="Next", command=self.on_next_button_click
         ).grid(row=1, column=2, padx=button_padding, pady=button_padding)
+
+    def create_favorite_button_frame(self):
+        favorite_button_frame = ctk.CTkFrame(self.master_frame, corner_radius=10)
+        favorite_button_frame.pack(side="bottom", pady=10)
+        button_padding = 5
+
+        ctk.CTkButton(
+            favorite_button_frame, textvariable=self.favorite_button_text, command=self.on_favorite_button_click
+        ).pack(padx=button_padding, pady=button_padding)
+
+    def on_favorite_button_click(self):
+        self.favorite_input_var.set(not self.favorite_input_var.get())
+        new_text = "Unfavorite" if self.favorite_input_var.get() else "Favorite"
+        self.favorite_button_text.set(new_text)
+        logger.debug(f"Favorite button clicked. The value is now {self.favorite_input_var.get()}")
 
     def create_progress_frame(self):
         self.progress_frame = ctk.CTkFrame(self.master_frame, corner_radius=10)
@@ -253,6 +271,8 @@ class GuiManager:
             logger.info("No more unprocessed documents available.")
 
     def update_gui(self):
+        self.favorite_input_var.set(False)
+
         if not self.tagger.documents or self.tagger.current_index >= len(
             self.tagger.documents
         ):
@@ -353,7 +373,6 @@ class GuiManager:
     def run_main_gui_loop(self):
         self.app.mainloop()
 
-
 class DiscogsCoverTagger:
     def __init__(self, db_manager: DatabaseManager, mode: str = "TAGGING"):
         self.db_manager = db_manager
@@ -384,6 +403,7 @@ class DiscogsCoverTagger:
         document = self.documents[self.current_index]
         tag = self.gui_manager.user_input_var.get()
         document_id = document["_id"]
+        favorite_eval = self.gui_manager.favorite_input_var.get()
 
         if self.mode == "TAGGING":
             processed_document = {
@@ -394,6 +414,7 @@ class DiscogsCoverTagger:
                     "tagger_id": self.tagger,
                     "tag_value": tag,
                     "timestamp": pd.Timestamp.now(),
+                    "favorite": favorite_eval,
                     "role": (
                         "primary_tagger"
                         if document["tagging_status"] == "unprocessed"
@@ -410,10 +431,12 @@ class DiscogsCoverTagger:
                     "tagger_id": self.tagger,
                     "tag_value": tag,
                     "timestamp": pd.Timestamp.now(),
+                    "favorite": favorite_eval,
                     "role": "validator",
                 }
             )
 
+        logger.debug(f"Processed document: {processed_document}")
         self._increment_batch_processed_count(document_id)
         self._add_or_update_processed_document(processed_document)
 
