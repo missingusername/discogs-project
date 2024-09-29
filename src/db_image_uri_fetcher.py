@@ -15,7 +15,7 @@ import typer
 
 from utils.logger_utils import get_logger
 
-logger = get_logger(__name__, "INFO")
+logger = get_logger(__name__, "DEBUG")
 app = typer.Typer()
 
 class DatabaseManager:
@@ -32,16 +32,19 @@ class DatabaseManager:
             raise
 
     def retrieve_documents_without_image_uri(
-    self,
-    limit: int,
-    as_list=False,
-) -> Optional[List[dict]]:
+        self,
+        limit: int,
+        as_list=False,
+    ) -> Optional[List[dict]]:
         logger.debug(f"Retrieving documents without image URI, limit: {limit}, as_list: {as_list}")
         try:
             query = {
-                "$or": [
-                    {"image_uri": {"$exists": False}},
-                    {"image_uri": ""},
+                "$and": [
+                    {"$or": [
+                        {"image_uri": {"$exists": False}},
+                        {"image_uri": ""}
+                    ]},
+                    {"fetching_status": {"$ne": "fetching"}}  # Add this condition
                 ]
             }
 
@@ -67,7 +70,6 @@ class DatabaseManager:
         logger.debug(f"Updating batch of {len(documents)} documents")
         try:
             bulk_operations = []
-            document_ids = [document["_id"] for document in documents]
             for document in documents:
                 bulk_operations.append(
                     pymongo.UpdateOne(
@@ -129,9 +131,10 @@ def rate_limited(func):
     return wrapper
 
 class DiscogsFetcher:
-    def __init__(self, user_token, mongodb_client):
+    def __init__(self, user_token, mongodb_client, user_agent):
         self.user_token = user_token
         self.mongodb_client = mongodb_client
+        self.user_agent = user_agent
         self.session = requests.Session()
 
     @rate_limited
@@ -157,6 +160,9 @@ class DiscogsFetcher:
                 logger.error(f"Rate limit exceeded. Retrying after {retry_after} seconds.")
                 time.sleep(retry_after)
                 return self.fetch_image_uri(master_id)
+            elif e.response.status_code == 500:
+                logger.error(f"Server error (500) when fetching image URI for master_id {master_id}. Setting image URI to 'Image not available'.")
+                return "Image not available"
             else:
                 logger.error(f"HTTP error when fetching image URI for master_id {master_id}: {e}")
         except requests.exceptions.RequestException as e:
@@ -165,7 +171,15 @@ class DiscogsFetcher:
             logger.error(f"JSON decode error for master_id {master_id}: {e}")
         except Exception as e:
             logger.error(f"Unexpected error when fetching image URI for master_id {master_id}: {e}")
-        return None
+        return "Image not available"
+    
+    
+    @contextmanager
+    def reset_fetching_status_on_exit(self, document_ids):
+        try:
+            yield
+        finally:
+            self.mongodb_client.reset_fetching_status(document_ids)
 
     def process_batch(self, batch_size=100):
         while True:
@@ -175,6 +189,10 @@ class DiscogsFetcher:
                 break
 
             document_ids = [document["_id"] for document in documents]
+            master_ids = [document.get("master_id") for document in documents if document.get("master_id")]
+
+            logger.debug(f"Processing batch with master_ids: {master_ids}")
+
             updated_documents = []
 
             try:
@@ -198,12 +216,6 @@ class DiscogsFetcher:
                 logger.error(f"An error occurred during batch processing: {e}")
                 raise
 
-        @contextmanager
-        def reset_fetching_status_on_exit(self, document_ids):
-            try:
-                yield
-            finally:
-                self.mongodb_client.reset_fetching_status(document_ids)
 
 
 @app.command()
@@ -213,6 +225,7 @@ def fetch_images(
     mongo_uri: Optional[str] = typer.Option(None, help="MongoDB URI"),
     db_name: str = typer.Option("discogs_data", help="MongoDB database name"),
     collection_name: str = typer.Option("albums", help="MongoDB collection name"),
+    user_agent: str = typer.Option("jl-prototyping/0.1", help="User-Agent for Discogs API requests")
 ):
     """
     Fetch image URIs for Discogs albums and update the MongoDB database.
@@ -243,7 +256,7 @@ def fetch_images(
             typer.secho("DISCOGS_API_KEY environment variable not set or empty", fg=typer.colors.RED)
             raise typer.Exit(code=1)
         
-        fetcher = DiscogsFetcher(discogs_user_token, mongodb_client)
+        fetcher = DiscogsFetcher(discogs_user_token, mongodb_client, user_agent)
         fetcher.process_batch(batch_size=batch_size)
 
     except Exception as e:
