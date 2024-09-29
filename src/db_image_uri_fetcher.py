@@ -39,8 +39,7 @@ class DatabaseManager:
             query = {
                 "$or": [
                     {"image_uri": {"$exists": False}},
-                    {"image_uri": {"$not": {"$regex": "^http"}}},
-                    {"image_uri": "Image not available"},
+                    {"image_uri": ""},
                 ]
             }
 
@@ -171,7 +170,7 @@ class DiscogsFetcher:
 
 def main():
     try:
-        env_file_path = Path(__file__).resolve().parents[1] / ".env"
+        env_file_path = Path(__file__).resolve().parents[2] / "Discogs" / ".env"
         load_dotenv(dotenv_path=env_file_path)
         
         mongo_uri = os.environ.get("MONGODB_URI_ALL")
@@ -189,7 +188,7 @@ def main():
         discogs_user_token = os.getenv("DISCOGS_API_KEY")
         
         fetcher = DiscogsFetcher(discogs_user_token, mongodb_client)
-        fetcher.process_batch(batch_size=16)
+        fetcher.process_batch(batch_size=60)
 
     except Exception as e:
         logger.critical(f"An unexpected error occurred: {e}")
