@@ -1,20 +1,22 @@
 from collections import deque
+from contextlib import contextmanager
 from functools import wraps
 import json
 import os
 from pathlib import Path
 import time
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from dotenv import load_dotenv
 import pymongo
-from tqdm import tqdm
 import requests
+from tqdm import tqdm
+import typer
 
 from utils.logger_utils import get_logger
 
 logger = get_logger(__name__, "INFO")
-
+app = typer.Typer()
 
 class DatabaseManager:
     def __init__(self, uri: str, db_name: str, collection_name: str):
@@ -30,10 +32,10 @@ class DatabaseManager:
             raise
 
     def retrieve_documents_without_image_uri(
-        self,
-        limit: int,
-        as_list=False,
-    ) -> Optional[pymongo.cursor.Cursor | List[dict]]:
+    self,
+    limit: int,
+    as_list=False,
+) -> Optional[List[dict]]:
         logger.debug(f"Retrieving documents without image URI, limit: {limit}, as_list: {as_list}")
         try:
             query = {
@@ -43,10 +45,20 @@ class DatabaseManager:
                 ]
             }
 
-            cursor = self.collection.find(query).limit(limit)
-            documents = list(cursor) if as_list else cursor
-            logger.debug(f"Retrieved {len(documents) if as_list else 'a cursor'} documents")
-            return documents
+            documents = []
+            for _ in range(limit):
+                document = self.collection.find_one_and_update(
+                    query,
+                    {"$set": {"fetching_status": "fetching"}},
+                    return_document=pymongo.ReturnDocument.AFTER
+                )
+                if document:
+                    documents.append(document)
+                else:
+                    break
+
+            logger.debug(f"Retrieved {len(documents)} documents")
+            return documents if as_list else iter(documents)
         except pymongo.errors.OperationFailure as e:
             logger.error(f"Failed to retrieve documents: {e}")
             return None
@@ -55,11 +67,12 @@ class DatabaseManager:
         logger.debug(f"Updating batch of {len(documents)} documents")
         try:
             bulk_operations = []
+            document_ids = [document["_id"] for document in documents]
             for document in documents:
                 bulk_operations.append(
                     pymongo.UpdateOne(
                         {"_id": document["_id"]},
-                        {"$set": {"image_uri": document["image_uri"]}},
+                        {"$set": {"image_uri": document["image_uri"], "fetching_status": "processed"}},
                     )
                 )
 
@@ -70,6 +83,17 @@ class DatabaseManager:
         except pymongo.errors.BulkWriteError as e:
             logger.error(f"Bulk write operation failed: {e}")
             return False
+        
+    def reset_fetching_status(self, document_ids: List):
+        logger.debug(f"Resetting fetching status for {len(document_ids)} documents")
+        try:
+            self.collection.update_many(
+                {"_id": {"$in": document_ids}},
+                {"$set": {"fetching_status": "unprocessed"}}
+            )
+            logger.info(f"Reset fetching status for {len(document_ids)} documents")
+        except pymongo.errors.BulkWriteError as e:
+            logger.error(f"Failed to reset fetching status: {e}")
 
 
 class RateLimiter:
@@ -150,49 +174,81 @@ class DiscogsFetcher:
                 logger.info("No more documents to process")
                 break
 
+            document_ids = [document["_id"] for document in documents]
             updated_documents = []
-            for document in tqdm(documents, desc="Processing documents"):
-                master_id = document.get("master_id")
-                if master_id:
-                    image_uri = self.fetch_image_uri(master_id)
-                    if image_uri:
-                        document["image_uri"] = image_uri
-                        updated_documents.append(document)
 
-            if updated_documents:
-                if self.mongodb_client.update_documents_batch(updated_documents):
-                    logger.info(f"Processed and updated {len(updated_documents)} documents.")
-                else:
-                    logger.warning("Failed to update documents in the database.")
-            else:
-                logger.warning("No documents were updated in this batch.")
+            try:
+                with self.reset_fetching_status_on_exit(document_ids):
+                    for document in tqdm(documents, desc="Processing documents"):
+                        master_id = document.get("master_id")
+                        if master_id:
+                            image_uri = self.fetch_image_uri(master_id)
+                            if image_uri:
+                                document["image_uri"] = image_uri
+                                updated_documents.append(document)
+
+                    if updated_documents:
+                        if self.mongodb_client.update_documents_batch(updated_documents):
+                            logger.info(f"Processed and updated {len(updated_documents)} documents.")
+                        else:
+                            logger.warning("Failed to update documents in the database.")
+                    else:
+                        logger.warning("No documents were updated in this batch.")
+            except Exception as e:
+                logger.error(f"An error occurred during batch processing: {e}")
+                raise
+
+        @contextmanager
+        def reset_fetching_status_on_exit(self, document_ids):
+            try:
+                yield
+            finally:
+                self.mongodb_client.reset_fetching_status(document_ids)
 
 
-def main():
+@app.command()
+def fetch_images(
+    batch_size: int = typer.Option(60, help="Number of documents to process in each batch"),
+    env_file: Optional[Path] = typer.Option(None, help="Path to the .env file"),
+    mongo_uri: Optional[str] = typer.Option(None, help="MongoDB URI"),
+    db_name: str = typer.Option("discogs_data", help="MongoDB database name"),
+    collection_name: str = typer.Option("albums", help="MongoDB collection name"),
+):
+    """
+    Fetch image URIs for Discogs albums and update the MongoDB database.
+    """
     try:
-        env_file_path = Path(__file__).resolve().parents[2] / "Discogs" / ".env"
-        load_dotenv(dotenv_path=env_file_path)
+        if env_file:
+            load_dotenv(dotenv_path=env_file)
+        else:
+            env_file_path = Path(__file__).resolve().parents[2] / "Discogs" / ".env"
+            load_dotenv(dotenv_path=env_file_path)
         
-        mongo_uri = os.environ.get("MONGODB_URI_ALL")
         if not mongo_uri:
-            logger.error("MONGO_URI_ALL environment variable not set or empty")
-            return
+            mongo_uri = os.environ.get("MONGODB_URI_ALL")
+        if not mongo_uri:
+            typer.secho("MONGO_URI_ALL environment variable not set or empty", fg=typer.colors.RED)
+            raise typer.Exit(code=1)
+        
         logger.debug(f"Mongo URI: {mongo_uri}")
         
         mongodb_client = DatabaseManager(
             uri=mongo_uri,
-            db_name="discogs_data",
-            collection_name="albums",
+            db_name=db_name,
+            collection_name=collection_name,
         )
 
         discogs_user_token = os.getenv("DISCOGS_API_KEY")
+        if not discogs_user_token:
+            typer.secho("DISCOGS_API_KEY environment variable not set or empty", fg=typer.colors.RED)
+            raise typer.Exit(code=1)
         
         fetcher = DiscogsFetcher(discogs_user_token, mongodb_client)
-        fetcher.process_batch(batch_size=60)
+        fetcher.process_batch(batch_size=batch_size)
 
     except Exception as e:
-        logger.critical(f"An unexpected error occurred: {e}")
-
+        typer.secho(f"An unexpected error occurred: {e}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
 
 if __name__ == "__main__":
-    main()
+    app()
