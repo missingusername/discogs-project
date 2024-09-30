@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 import time
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from dotenv import load_dotenv
 import pymongo
@@ -66,15 +66,22 @@ class DatabaseManager:
             logger.error(f"Failed to retrieve documents: {e}")
             return None
 
-    def update_documents_batch(self, documents: List[dict]) -> bool:
-        logger.debug(f"Updating batch of {len(documents)} documents")
+    def update_documents_batch(self, documents: List[dict], timestamp: Optional[bool] = False) -> bool:
+        logger.debug(f"Updating batch of {len(documents)} documents with timestamp: {timestamp}")
         try:
             bulk_operations = []
             for document in documents:
+                update_fields = {
+                    "image_uri": document["image_uri"],
+                    "fetching_status": "processed"
+                }
+                if timestamp:
+                    update_fields["timestamp"] = time.time()
+
                 bulk_operations.append(
                     pymongo.UpdateOne(
                         {"_id": document["_id"]},
-                        {"$set": {"image_uri": document["image_uri"], "fetching_status": "processed"}},
+                        {"$set": update_fields},
                     )
                 )
 
@@ -183,7 +190,7 @@ class DiscogsFetcher:
             self.mongodb_client.reset_fetching_status(document_ids)
             raise
 
-    def process_batch(self, batch_size=100):
+    def process_batch(self, batch_size=100, timestamp=False):
         while True:
             documents = self.mongodb_client.retrieve_documents_without_image_uri(limit=batch_size, as_list=True)
             if not documents:
@@ -208,7 +215,7 @@ class DiscogsFetcher:
                                 updated_documents.append(document)
 
                     if updated_documents:
-                        if self.mongodb_client.update_documents_batch(updated_documents):
+                        if self.mongodb_client.update_documents_batch(updated_documents, timestamp=timestamp):
                             logger.info(f"Processed and updated {len(updated_documents)} documents.")
                         else:
                             logger.warning("Failed to update documents in the database.")
@@ -227,7 +234,8 @@ def fetch_images(
     mongo_uri: Optional[str] = typer.Option(None, help="MongoDB URI"),
     db_name: str = typer.Option("discogs_data", help="MongoDB database name"),
     collection_name: str = typer.Option("albums", help="MongoDB collection name"),
-    user_agent: str = typer.Option("jl-prototyping/0.1", help="User-Agent for Discogs API requests")
+    user_agent: str = typer.Option("jl-prototyping/0.1", help="User-Agent for Discogs API requests"),
+    timestamp: bool = typer.Option(False, help="Add timestamp to documents when updating")
 ):
     """
     Fetch image URIs for Discogs albums and update the MongoDB database.
@@ -259,7 +267,7 @@ def fetch_images(
             raise typer.Exit(code=1)
         
         fetcher = DiscogsFetcher(discogs_user_token, mongodb_client, user_agent)
-        fetcher.process_batch(batch_size=batch_size)
+        fetcher.process_batch(batch_size=batch_size, timestamp=timestamp)
 
     except Exception as e:
         typer.secho(f"An unexpected error occurred: {e}", fg=typer.colors.RED)
