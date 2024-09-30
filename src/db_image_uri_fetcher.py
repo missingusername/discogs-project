@@ -178,8 +178,10 @@ class DiscogsFetcher:
     def reset_fetching_status_on_exit(self, document_ids):
         try:
             yield
-        finally:
+        except Exception:
+            # Only reset the fetching status if an exception occurs
             self.mongodb_client.reset_fetching_status(document_ids)
+            raise
 
     def process_batch(self, batch_size=100):
         while True:
