@@ -75,7 +75,7 @@ class DatabaseManager:
         limit: int,
         as_list=False,
     ) -> Optional[List[dict]]:
-        logger.debug(f"Retrieving documents without image URI, limit: {limit}, as_list: {as_list}")
+        logger.info(f"Retrieving documents without image URI, limit: {limit}, as_list: {as_list}")
         try:
             query = {
                 "$and": [
@@ -282,10 +282,11 @@ class DiscogsFetcher:
 
                     # Log request time statistics
                     if request_times:
+                        sum_time = sum(request_times)
                         avg_time = sum(request_times) / len(request_times)
                         max_time = max(request_times)
                         min_time = min(request_times)
-                        logger.info(f"Request time stats - Avg: {avg_time:.2f}s, Max: {max_time:.2f}s, Min: {min_time:.2f}s")
+                        logger.info(f"Request time stats - Total: {sum_time:.2f}s, Avg: {avg_time:.2f}s, Max: {max_time:.2f}s, Min: {min_time:.2f}s")
 
             except KeyboardInterrupt:
                 logger.error("Keyboard interrupt detected. Resetting fetching status for current batch.")
