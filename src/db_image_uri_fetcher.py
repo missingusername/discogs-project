@@ -4,10 +4,12 @@ from functools import wraps
 import json
 import os
 from pathlib import Path
+import socket
 import time
 from typing import List, Optional
 
 from dotenv import load_dotenv
+import netifaces
 import pymongo
 import requests
 from tqdm import tqdm
@@ -17,6 +19,44 @@ from utils.logger_utils import get_logger
 
 logger = get_logger(__name__, "DEBUG")
 app = typer.Typer()
+
+class NetworkUtils:
+    @staticmethod
+    def get_machine_ip():
+        ip_addresses = []
+        
+        # Method 1: Using socket
+        try:
+            socket_ip = socket.gethostbyname(socket.gethostname())
+            if socket_ip != "127.0.0.1":
+                ip_addresses.append(("socket", socket_ip))
+            logger.info(f"[SOCKET] IP address: {socket_ip}")
+        except Exception as e:
+            logger.error(f"Failed to fetch IP address using socket: {e}")
+        
+        # Method 2: Using netifaces (cross-platform)
+        try:
+            for interface in netifaces.interfaces():
+                addrs = netifaces.ifaddresses(interface)
+                if netifaces.AF_INET in addrs:
+                    for addr in addrs[netifaces.AF_INET]:
+                        ip = addr['addr']
+                        if ip != "127.0.0.1":
+                            ip_addresses.append(("netifaces", ip))
+                            logger.info(f"[NETIFACES] IP address for {interface}: {ip}")
+        except Exception as e:
+            logger.error(f"Failed to fetch IP addresses using netifaces: {e}")
+        
+        # Analyze results
+        if not ip_addresses:
+            logger.warning("No non-loopback IP addresses found.")
+            return None
+        elif len(ip_addresses) == 1:
+            logger.info(f"Found one IP address: {ip_addresses[0][1]}")
+            return ip_addresses[0][1]
+        else:
+            logger.info(f"Found multiple IP addresses: {[ip for _, ip in ip_addresses]}")
+            return ip_addresses[0][1]  # Returning the first non-loopback IP found
 
 class DatabaseManager:
     def __init__(self, uri: str, db_name: str, collection_name: str):
