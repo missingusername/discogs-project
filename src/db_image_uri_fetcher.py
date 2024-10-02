@@ -115,7 +115,7 @@ class DatabaseManager:
                     "fetching_status": "processed"
                 }
                 if timestamp:
-                    update_fields["timestamp"] = time.time()
+                    update_fields["uri_time_fetched"] = time.time()
 
                 bulk_operations.append(
                     pymongo.UpdateOne(
@@ -236,6 +236,7 @@ class DiscogsFetcher:
 
     def process_batch(self, batch_size=100, timestamp=False):
         while True:
+            start_time = time.time()  # Start the timer
             documents = self.mongodb_client.retrieve_documents_without_image_uri(limit=batch_size, as_list=True)
             if not documents:
                 logger.info("No more documents to process")
@@ -296,6 +297,10 @@ class DiscogsFetcher:
                 logger.error(f"An error occurred during batch processing: {e}")
                 raise
 
+            end_time = time.time()  # Stop the timer
+            elapsed_time = end_time - start_time
+            logger.info(f"Batch processing time: {elapsed_time:.2f} seconds")
+
 
 @app.command()
 def fetch_images(
@@ -305,7 +310,7 @@ def fetch_images(
     db_name: str = typer.Option("discogs_data", help="MongoDB database name"),
     collection_name: str = typer.Option("albums", help="MongoDB collection name"),
     user_agent: str = typer.Option("jl-prototyping/0.1", help="User-Agent for Discogs API requests"),
-    timestamp: bool = typer.Option(False, help="Add timestamp to documents when updating")
+    timestamp: bool = typer.Option(True, help="Add timestamp to documents when updating")
 ):
     """
     Fetch image URIs for Discogs albums and update the MongoDB database.
@@ -331,7 +336,7 @@ def fetch_images(
             collection_name=collection_name,
         )
 
-        discogs_user_token = os.getenv("DISCOGS_API_KEY")
+        discogs_user_token = os.getenv("DISCOGS_API_KEY_GABRIEL")
         if not discogs_user_token:
             typer.secho("DISCOGS_API_KEY environment variable not set or empty", fg=typer.colors.RED)
             raise typer.Exit(code=1)
