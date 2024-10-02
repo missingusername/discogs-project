@@ -1,12 +1,11 @@
 from collections import deque
 from contextlib import contextmanager
 from functools import wraps
-import json
 import os
 from pathlib import Path
 import socket
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from dotenv import load_dotenv
 import netifaces
@@ -17,7 +16,7 @@ import typer
 
 from utils.logger_utils import get_logger
 
-logger = get_logger(__name__, "DEBUG")
+logger = get_logger(__name__, "INFO")
 app = typer.Typer()
 
 class NetworkUtils:
@@ -150,7 +149,6 @@ class RateLimiter:
     def __init__(self, max_requests, period):
         self.max_requests = max_requests
         self.period = period
-        self.request_times = deque()
         self.remaining = max_requests
         self.reset_time = time.time() + period
 
@@ -160,37 +158,24 @@ class RateLimiter:
 
     def get_token(self):
         now = time.time()
-        if now > self.reset_time:
-            self.request_times.clear()
+        if now >= self.reset_time:
+            # If we've passed the reset time, reset the remaining requests
             self.remaining = self.max_requests
-
-        while self.request_times and now - self.request_times[0] > self.period:
-            self.request_times.popleft()
-
-        if len(self.request_times) < self.max_requests and self.remaining > 0:
-            self.request_times.append(now)
+            self.reset_time = now + self.period
+        
+        if self.remaining > 0:
             self.remaining -= 1
             return True
         return False
 
 def rate_limited(func):
-    limiter = RateLimiter(max_requests=60, period=60)
-    max_backoff = 64
-
     @wraps(func)
-    def wrapper(*args, **kwargs):
-        backoff = 1
-        while not limiter.get_token():
-            sleep_time = min(backoff, max(0, limiter.reset_time - time.time()))
-            logger.info(f"Rate limit reached, sleeping for {sleep_time:.2f} seconds.")
+    def wrapper(self, *args, **kwargs):
+        while not self.rate_limiter.get_token():
+            sleep_time = max(0, self.rate_limiter.reset_time - time.time())
+            logger.info(f"Rate limit reached. Remaining: {self.rate_limiter.remaining}, Reset Time: {self.rate_limiter.reset_time}, Sleeping for {sleep_time:.2f} seconds.")
             time.sleep(sleep_time)
-            backoff = min(backoff * 2, max_backoff)
-        start_time = time.time()
-        result = func(*args, **kwargs)
-        end_time = time.time()
-        logger.debug(f"Request took {end_time - start_time:.2f} seconds.")
-        return result
-
+        return func(self, *args, **kwargs)
     return wrapper
 
 class DiscogsFetcher:
@@ -199,43 +184,46 @@ class DiscogsFetcher:
         self.mongodb_client = mongodb_client
         self.user_agent = user_agent
         self.session = requests.Session()
+        self.rate_limiter = RateLimiter(max_requests=60, period=60)
 
     @rate_limited
-    def fetch_image_uri(self, master_id):
+    def fetch_image_uri(self, master_id) -> Tuple[Optional[str], int, float]:
         try:
             url = f"https://api.discogs.com/masters/{master_id}"
             headers = {
-                'User-Agent': 'jl-prototyping/0.1',
+                'User-Agent': self.user_agent,
                 'Authorization': f'Discogs token={self.user_token}'
             }
+            start_time = time.time()
             response = self.session.get(url, headers=headers)
             response.raise_for_status()
             
+            # Update rate limiter based on response headers
+            remaining = int(response.headers.get('X-Discogs-Ratelimit-Remaining', self.rate_limiter.remaining))
+            reset_time = float(response.headers.get('X-Discogs-Ratelimit-Reset', time.time() + 60))
+            logger.debug(f"API Response - Rate limit remaining: {remaining}, reset time: {reset_time}")
+            logger.debug(f"Before update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
+            self.rate_limiter.update_limits(remaining, reset_time)
+            logger.debug(f"After update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
+            
             master_data = response.json()
             image_uri = master_data['images'][0]['uri'] if master_data.get('images') else "Image not available"
-            return image_uri
+            return image_uri, response.status_code, time.time() - start_time
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 logger.error(f"Master ID {master_id} not found. Setting image URI to 'Image not available'.")
-                return "Image not available"
+                return "Image not available", e.response.status_code, time.time() - start_time
             elif e.response.status_code == 429:
                 retry_after = int(e.response.headers.get("Retry-After", 30))
-                logger.error(f"Rate limit exceeded. Retrying after {retry_after} seconds.")
-                time.sleep(retry_after)
-                return self.fetch_image_uri(master_id)
-            elif e.response.status_code == 500:
-                logger.error(f"Server error (500) when fetching image URI for master_id {master_id}. Setting image URI to 'Image not available'.")
-                return "Image not available"
+                logger.error(f"Rate limit exceeded. Updating rate limiter.")
+                self.rate_limiter.update_limits(0, time.time() + retry_after)
+                return None, e.response.status_code, time.time() - start_time
             else:
                 logger.error(f"HTTP error when fetching image URI for master_id {master_id}: {e}")
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Request error when fetching image URI for master_id {master_id}: {e}")
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error for master_id {master_id}: {e}")
+                return None, e.response.status_code, time.time() - start_time
         except Exception as e:
             logger.error(f"Unexpected error when fetching image URI for master_id {master_id}: {e}")
-        return "Image not available"
-    
+            return None, 0, time.time() - start_time
     
     @contextmanager
     def reset_fetching_status_on_exit(self, document_ids):
@@ -259,16 +247,30 @@ class DiscogsFetcher:
             logger.debug(f"Processing batch with master_ids: {master_ids}")
 
             updated_documents = []
+            request_times = []
 
             try:
                 with self.reset_fetching_status_on_exit(document_ids):
                     for document in tqdm(documents, desc="Processing documents"):
                         master_id = document.get("master_id")
                         if master_id:
-                            image_uri = self.fetch_image_uri(master_id)
-                            if image_uri:
-                                document["image_uri"] = image_uri
-                                updated_documents.append(document)
+                            while True:
+                                image_uri, status_code, request_time = self.fetch_image_uri(master_id)
+                                request_times.append(request_time)
+
+                                if status_code == 429:
+                                    logger.info("Rate limit reached. Waiting before retrying.")
+                                    sleep_time = max(0, self.rate_limiter.reset_time - time.time())
+                                    time.sleep(sleep_time)
+                                    continue
+
+                                if image_uri is not None:
+                                    document["image_uri"] = image_uri
+                                    updated_documents.append(document)
+                                else:
+                                    logger.warning(f"Failed to fetch image URI for master_id {master_id}. Status code: {status_code}")
+
+                                break  # Exit the while loop after successful fetch or non-429 error
 
                     if updated_documents:
                         if self.mongodb_client.update_documents_batch(updated_documents, timestamp=timestamp):
@@ -277,10 +279,21 @@ class DiscogsFetcher:
                             logger.warning("Failed to update documents in the database.")
                     else:
                         logger.warning("No documents were updated in this batch.")
+
+                    # Log request time statistics
+                    if request_times:
+                        avg_time = sum(request_times) / len(request_times)
+                        max_time = max(request_times)
+                        min_time = min(request_times)
+                        logger.info(f"Request time stats - Avg: {avg_time:.2f}s, Max: {max_time:.2f}s, Min: {min_time:.2f}s")
+
+            except KeyboardInterrupt:
+                logger.error("Keyboard interrupt detected. Resetting fetching status for current batch.")
+                self.mongodb_client.reset_fetching_status(document_ids)
+                raise  # Re-raise the exception to halt the script
             except Exception as e:
                 logger.error(f"An error occurred during batch processing: {e}")
                 raise
-
 
 
 @app.command()
