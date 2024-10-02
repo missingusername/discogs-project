@@ -145,35 +145,51 @@ class DatabaseManager:
             logger.error(f"Failed to reset fetching status: {e}")
 
 
+
 class RateLimiter:
     def __init__(self, max_requests, period):
         self.max_requests = max_requests
         self.period = period
         self.request_times = deque()
+        self.remaining = max_requests
+        self.reset_time = time.time() + period
+
+    def update_limits(self, remaining: int, reset_time: float):
+        self.remaining = remaining
+        self.reset_time = reset_time
 
     def get_token(self):
         now = time.time()
+        if now > self.reset_time:
+            self.request_times.clear()
+            self.remaining = self.max_requests
+
         while self.request_times and now - self.request_times[0] > self.period:
             self.request_times.popleft()
 
-        if len(self.request_times) < self.max_requests:
+        if len(self.request_times) < self.max_requests and self.remaining > 0:
             self.request_times.append(now)
+            self.remaining -= 1
             return True
         return False
 
 def rate_limited(func):
-    limiter = RateLimiter(max_requests=60, period=60)  # Adjust these values based on Discogs API limits
-    max_backoff = 64  # Maximum backoff time in seconds
+    limiter = RateLimiter(max_requests=60, period=60)
+    max_backoff = 64
 
     @wraps(func)
     def wrapper(*args, **kwargs):
         backoff = 1
         while not limiter.get_token():
-            logger.info(f"Rate limit reached, sleeping for {backoff} seconds.")
-            time.sleep(backoff)
-            backoff = min(backoff * 2, max_backoff)  # Exponential backoff with a cap
-        logger.debug("Proceeding with the request.")
-        return func(*args, **kwargs)
+            sleep_time = min(backoff, max(0, limiter.reset_time - time.time()))
+            logger.info(f"Rate limit reached, sleeping for {sleep_time:.2f} seconds.")
+            time.sleep(sleep_time)
+            backoff = min(backoff * 2, max_backoff)
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        logger.debug(f"Request took {end_time - start_time:.2f} seconds.")
+        return result
 
     return wrapper
 
