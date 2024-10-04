@@ -1,6 +1,8 @@
 import json
 import os
+import pandas as pd
 from typing import List, Tuple
+from pathlib import Path
 
 from dotenv import load_dotenv
 import pymongo
@@ -99,7 +101,7 @@ class DatabaseManager:
         """Count documents where the specified field is null."""
         return self.collection.count_documents({field: None})
     
-    def check_for_duplicate_documents(self, fields: List[str], chunk_size: int = 100000) -> List[dict]:
+    def check_for_duplicate_documents(self, fields: List[str], chunk_size: int = 100000, output_csv: str = None) -> List[dict]:
         group_fields = {field: f"${field}" for field in fields}
         total_docs = self.collection.count_documents({})
         duplicate_groups = []
@@ -134,9 +136,23 @@ class DatabaseManager:
                 logger.info(f"Found {group['count']} duplicate documents:")
                 for doc_id in group['docs']:
                     logger.debug(f"Document ID: {doc_id}")
+        
+        if output_csv:
+            self._write_duplicates_to_csv(fields, duplicate_groups, Path(output_csv))
     
         logger.info(f"Total duplicate groups found: {len(duplicate_groups)}")
         return duplicate_groups
+    
+    def _write_duplicates_to_csv(self, fields: List[str], duplicate_groups: List[dict], output_csv: Path):
+        data = []
+        for group in duplicate_groups:
+            row = {field: group["_id"].get(field, "") for field in fields}
+            row["count"] = group["count"]
+            row["document_ids"] = ", ".join(map(str, group["docs"]))
+            data.append(row)
+        
+        df = pd.DataFrame(data)
+        df.to_csv(output_csv, index=False)
     
 def main():
     # Load environment variables from .env file from root directory
@@ -180,8 +196,11 @@ def main():
     db_manager.analyze_document_structure(sample_size=5)  # Adjust sample size as needed
 
     # Check for duplicate documents grouped by field
-    duplicates = db_manager.check_for_duplicate_documents(["master_id"])
-    logger.info(f"Number of duplicate groups: {len(duplicates)}")
+    #master_duplicates = db_manager.check_for_duplicate_documents(["master_id"], output_csv="master_duplicates.csv")
+    #logger.info(f"Number of duplicate groups: {len(master_duplicates)}")
+
+    artist_title_duplicates = db_manager.check_for_duplicate_documents(["artist_names", "title"], output_csv="artist_title_duplicates.csv")
+    logger.info(f"Number of duplicate groups: {len(artist_title_duplicates)}")
 
     # Count embedded documents
     embedded_stats = db_manager.count_embedded_documents()
