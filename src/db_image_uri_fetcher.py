@@ -80,10 +80,10 @@ class DatabaseManager:
             query = {
                 "$and": [
                     {"$or": [
-                        {"image_uri": {"$exists": False}},
-                        {"image_uri": ""}
+                        {"album_cover.image_uri": {"$exists": False}},
+                        {"album_cover.image_uri": ""}
                     ]},
-                    {"fetching_status": {"$ne": "fetching"}}  # Add this condition
+                    {"album_cover.fetching_status": {"$ne": "fetching"}}  # Add this condition
                 ]
             }
 
@@ -91,7 +91,7 @@ class DatabaseManager:
             for _ in range(limit):
                 document = self.collection.find_one_and_update(
                     query,
-                    {"$set": {"fetching_status": "fetching"}},
+                    {"$set": {"album_cover.fetching_status": "fetching"}},
                     return_document=pymongo.ReturnDocument.AFTER
                 )
                 if document:
@@ -111,11 +111,14 @@ class DatabaseManager:
             bulk_operations = []
             for document in documents:
                 update_fields = {
-                    "image_uri": document["image_uri"],
-                    "fetching_status": "processed"
+                    "tracklist": document["tracklist"],
+                    "album_cover": {
+                        "image_uri": document["image_uri"],
+                        "fetching_status": "processed"
+                    }
                 }
                 if timestamp:
-                    update_fields["uri_time_fetched"] = time.time()
+                    update_fields["album_cover"]["uri_time_fetched"] = time.time()
 
                 bulk_operations.append(
                     pymongo.UpdateOne(
@@ -142,8 +145,6 @@ class DatabaseManager:
             logger.info(f"Reset fetching status for {len(document_ids)} documents")
         except pymongo.errors.BulkWriteError as e:
             logger.error(f"Failed to reset fetching status: {e}")
-
-
 
 class RateLimiter:
     def __init__(self, max_requests, period):
@@ -187,7 +188,11 @@ class DiscogsFetcher:
         self.rate_limiter = RateLimiter(max_requests=60, period=60)
 
     @rate_limited
-    def fetch_image_uri(self, master_id) -> Tuple[Optional[str], int, float]:
+    def fetch_master_popularity(self):
+        pass
+
+    @rate_limited
+    def fetch_image_uri_and_tracklist(self, master_id) -> Tuple[Optional[str], int, float, Optional[List[dict]]]:
         try:
             url = f"https://api.discogs.com/masters/{master_id}"
             headers = {
@@ -208,22 +213,23 @@ class DiscogsFetcher:
             
             master_data = response.json()
             image_uri = master_data['images'][0]['uri'] if master_data.get('images') else "Image not available"
-            return image_uri, response.status_code, time.time() - start_time
+            track_list = master_data['tracklist'] if master_data.get('tracklist') else []
+            return image_uri, response.status_code, time.time() - start_time, track_list
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 logger.error(f"Master ID {master_id} not found. Setting image URI to 'Image not available'.")
-                return "Image not available", e.response.status_code, time.time() - start_time
+                return "Image not available", e.response.status_code, time.time() - start_time, None
             elif e.response.status_code == 429:
                 retry_after = int(e.response.headers.get("Retry-After", 30))
                 logger.error(f"Rate limit exceeded. Updating rate limiter.")
                 self.rate_limiter.update_limits(0, time.time() + retry_after)
-                return None, e.response.status_code, time.time() - start_time
+                return None, e.response.status_code, time.time() - start_time, None
             else:
                 logger.error(f"HTTP error when fetching image URI for master_id {master_id}: {e}")
-                return None, e.response.status_code, time.time() - start_time
+                return None, e.response.status_code, time.time() - start_time, None
         except Exception as e:
             logger.error(f"Unexpected error when fetching image URI for master_id {master_id}: {e}")
-            return None, 0, time.time() - start_time
+            return None, 0, time.time() - start_time, None
     
     @contextmanager
     def reset_fetching_status_on_exit(self, document_ids):
@@ -256,7 +262,7 @@ class DiscogsFetcher:
                         master_id = document.get("master_id")
                         if master_id:
                             while True:
-                                image_uri, status_code, request_time = self.fetch_image_uri(master_id)
+                                image_uri, status_code, request_time, track_list = self.fetch_image_uri_and_tracklist(master_id)
                                 request_times.append(request_time)
 
                                 if status_code == 429:
@@ -265,11 +271,16 @@ class DiscogsFetcher:
                                     time.sleep(sleep_time)
                                     continue
 
+                                if track_list is not None:
+                                    document["tracklist"] = track_list
+
                                 if image_uri is not None:
                                     document["image_uri"] = image_uri
                                     updated_documents.append(document)
                                 else:
                                     logger.warning(f"Failed to fetch image URI for master_id {master_id}. Status code: {status_code}")
+                                    if track_list is not None:
+                                        updated_documents.append(document)
 
                                 break  # Exit the while loop after successful fetch or non-429 error
 
@@ -304,7 +315,7 @@ class DiscogsFetcher:
 
 @app.command()
 def fetch_images(
-    batch_size: int = typer.Option(60, help="Number of documents to process in each batch"),
+    batch_size: int = typer.Option(12, help="Number of documents to process in each batch"),
     env_file: Optional[Path] = typer.Option(None, help="Path to the .env file"),
     mongo_uri: Optional[str] = typer.Option(None, help="MongoDB URI"),
     db_name: str = typer.Option("discogs_data", help="MongoDB database name"),
@@ -319,7 +330,7 @@ def fetch_images(
         if env_file:
             load_dotenv(dotenv_path=env_file)
         else:
-            env_file_path = Path(__file__).resolve().parents[2] / "Discogs" / ".env"
+            env_file_path = Path(__file__).resolve().parents[1] / ".env"
             load_dotenv(dotenv_path=env_file_path)
         
         if not mongo_uri:
