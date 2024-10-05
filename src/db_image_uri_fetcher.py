@@ -188,8 +188,21 @@ class DiscogsFetcher:
         self.rate_limiter = RateLimiter(max_requests=60, period=60)
 
     @rate_limited
-    def fetch_master_popularity(self):
-        pass
+    def fetch_master_popularity(self, master_id, document):
+        
+        try:
+            url = "https://api.discogs.com/database/search"
+            headers = {
+                'User-Agent': self.user_agent,
+                'Authorization': f"Discogs token={self.user_token}",
+                'Accept': 'application/vnd.discogs.v2.discogs+json'
+            }
+            start_time = time.time()
+            response = self.session.get(url, headers=headers)
+            response.raise_for_status()
+        except Exception as e:
+            logger.error(f"HTTP error when fetching image URI for master_id: {e}")
+            return None, e.response.status_code, time.time() - start_time, None
 
     @rate_limited
     def fetch_image_uri_and_tracklist(self, master_id) -> Tuple[Optional[str], int, float, Optional[List[dict]]]:
@@ -197,7 +210,8 @@ class DiscogsFetcher:
             url = f"https://api.discogs.com/masters/{master_id}"
             headers = {
                 'User-Agent': self.user_agent,
-                'Authorization': f'Discogs token={self.user_token}'
+                'Authorization': f'Discogs token={self.user_token}',
+                'Accept': 'application/vnd.discogs.v2.discogs+json'
             }
             start_time = time.time()
             response = self.session.get(url, headers=headers)
