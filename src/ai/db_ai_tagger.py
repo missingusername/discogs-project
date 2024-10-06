@@ -46,20 +46,25 @@ def update_documents_bulk(collection, updates):
         master_id = update["master_id"]
         predicted_label = update["predicted_label"]
         confidence_score = update["confidence_score"]
-        print(f"Preparing update for master_id: {master_id} with ai_tag: {predicted_label} and ai_confidence: {confidence_score}")
+        #print(f"Preparing update for master_id: {master_id} with ai_tag: {predicted_label} and ai_confidence: {confidence_score}")
         bulk_operations.append(
             pymongo.UpdateOne(
-                {"master_id": master_id},
-                {"$set": {"ai_tag": predicted_label, "ai_confidence": confidence_score}}
+            {"master_id": master_id},
+            {"$set": {"ai_prediction":
+                      {"tag": predicted_label, 
+                       "confidence": confidence_score,
+                       "model": model_name}
+                    }
+            }
             )
         )
     
     if bulk_operations:
         result = collection.bulk_write(bulk_operations)
-        print(f"Matched {result.matched_count} documents and modified {result.modified_count} documents.")
+        #print(f"Matched {result.matched_count} documents and modified {result.modified_count} documents.")
 
 def process_batch(model, transform, documents, device):
-    print("Processing batch of images")
+    #print("Processing batch of images")
     image_data_list = [doc["image_data"] for doc in documents]
     master_ids = [doc["master_id"] for doc in documents]
 
@@ -73,19 +78,19 @@ def process_batch(model, transform, documents, device):
             "confidence_score": confidence_score
         })
 
-    print(updates)
     return updates
 
 def process_images_in_db(model, transform, collection, sort_field='master_id', batch_size=32):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
     model.to(device)
 
-    total_documents = collection.count_documents({"image_data": {"$exists": True}, "ai_tag": None})
+    total_documents = collection.count_documents({"image_data": {"$exists": True}, "ai_prediction": None})
     print(f"Total documents to process: {total_documents}")
     for i in tqdm(range(0, total_documents, batch_size), ascii=True, desc="Processing images"):
         documents = list(collection.find(
-            {"image_data": {"$exists": True}, "ai_tag": None}
-        ).sort(sort_field, 1).limit(batch_size).allow_disk_use(True))
+            {"image_data": {"$exists": True}, "ai_prediction": None}
+        ).sort(sort_field, pymongo.ASCENDING).limit(batch_size).allow_disk_use(True))
         
         updates = process_batch(model, transform, documents, device)
         update_documents_bulk(collection, updates)
@@ -96,12 +101,18 @@ def connect_to_db():
     client = pymongo.MongoClient(mongo_uri)
     db = client["album_covers"]
     collection = db["fiveK-albums-sample-copy"]
+    
+    # Create index on master_id for faster queries
+    collection.create_index("master_id")
+    
     return collection
 
 def main():
+    global model_name
     collection = connect_to_db()
+    model_name = "revo_resnet50.pth"
+    model_path = os.path.join('out', 'models', model_name)
 
-    model_path = os.path.join('out', 'models', 'complete_model.pth')
     model = load_model(model_path)
     transform = get_transform()
     batch_size = 16
