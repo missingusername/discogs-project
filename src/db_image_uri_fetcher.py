@@ -81,9 +81,11 @@ class DatabaseManager:
                 "$and": [
                     {"$or": [
                         {"album_cover.image_uri": {"$exists": False}},
-                        {"album_cover.image_uri": ""}
+                        {"album_cover.image_uri": ""},
+                        
                     ]},
-                    {"album_cover.fetching_status": {"$ne": "fetching"}}  # Add this condition
+                    {"album_cover.fetching_status": {"$ne": "fetching"}},
+                    {"image_uri": {"$exists": False}},
                 ]
             }
 
@@ -111,12 +113,15 @@ class DatabaseManager:
             bulk_operations = []
             for document in documents:
                 update_fields = {
-                    "tracklist": document["tracklist"],
                     "album_cover": {
                         "image_uri": document["image_uri"],
                         "fetching_status": "processed"
                     }
                 }
+                if "tracklist" in document:
+                    update_fields["tracklist"] = document["tracklist"]
+                if "popularity" in document:
+                    update_fields["popularity"] = document["popularity"]
                 if timestamp:
                     update_fields["album_cover"]["uri_time_fetched"] = time.time()
 
@@ -140,7 +145,7 @@ class DatabaseManager:
         try:
             self.collection.update_many(
                 {"_id": {"$in": document_ids}},
-                {"$set": {"fetching_status": "unprocessed"}}
+                {"$set": {"album_cover.fetching_status": "unprocessed"}}
             )
             logger.info(f"Reset fetching status for {len(document_ids)} documents")
         except pymongo.errors.BulkWriteError as e:
@@ -180,14 +185,15 @@ def rate_limited(func):
     return wrapper
 
 class DiscogsFetcher:
-    def __init__(self, user_token, mongodb_client, user_agent):
+    def __init__(self, user_token, mongodb_client, user_agent, mode):
         self.user_token = user_token
         self.mongodb_client = mongodb_client
         self.user_agent = user_agent
         self.session = requests.Session()
         self.rate_limiter = RateLimiter(max_requests=60, period=60)
+        self.fetch_mode = mode
 
-    def _find_result_by_master_id(data, target_master_id):
+    def _find_result_by_master_id(self, data, target_master_id):
         for result in data['results']:
             if result['master_id'] == target_master_id:
                 return result
@@ -204,9 +210,8 @@ class DiscogsFetcher:
                 'Accept': 'application/vnd.discogs.v2.discogs+json'
             }
             params = {
-                'type': 'master',
                 'release_title': document.get("title"),
-                'artist': document.get("artist_names"),
+                'type': 'master',
                 'year': document.get("year"),
             }
             start_time = time.time()
@@ -318,7 +323,14 @@ class DiscogsFetcher:
                         master_id = document.get("master_id")
                         if master_id:
                             while True:
-                                image_uri, status_code, request_time, track_list = self.fetch_image_uri_and_tracklist(master_id)
+                                if self.fetch_mode == "tracklist":
+                                    image_uri, status_code, request_time, track_list = self.fetch_image_uri_and_tracklist(master_id)
+                                elif self.fetch_mode == "popularity":
+                                    image_uri, status_code, request_time, popularity = self.fetch_master_popularity(master_id, document)
+                                else:
+                                    logger.error(f"Unknown fetch mode: {self.fetch_mode}")
+                                    raise ValueError(f"Unknown fetch mode: {self.fetch_mode}")
+
                                 request_times.append(request_time)
 
                                 if status_code == 429:
@@ -327,15 +339,21 @@ class DiscogsFetcher:
                                     time.sleep(sleep_time)
                                     continue
 
-                                if track_list is not None:
-                                    document["tracklist"] = track_list
+                                if self.fetch_mode == "tracklist":
+                                    if track_list is not None:
+                                        document["tracklist"] = track_list
+                                elif self.fetch_mode == "popularity":
+                                    if popularity is not None:
+                                        document["popularity"] = popularity
 
                                 if image_uri is not None:
                                     document["image_uri"] = image_uri
                                     updated_documents.append(document)
                                 else:
                                     logger.warning(f"Failed to fetch image URI for master_id {master_id}. Status code: {status_code}")
-                                    if track_list is not None:
+                                    if self.fetch_mode == "tracklist" and track_list is not None:
+                                        updated_documents.append(document)
+                                    elif self.fetch_mode == "popularity" and popularity is not None:
                                         updated_documents.append(document)
 
                                 break  # Exit the while loop after successful fetch or non-429 error
@@ -408,7 +426,7 @@ def fetch_images(
             typer.secho("DISCOGS_API_KEY environment variable not set or empty", fg=typer.colors.RED)
             raise typer.Exit(code=1)
         
-        fetcher = DiscogsFetcher(discogs_user_token, mongodb_client, user_agent)
+        fetcher = DiscogsFetcher(discogs_user_token, mongodb_client, user_agent, 'popularity')
         fetcher.process_batch(batch_size=batch_size, timestamp=timestamp)
 
     except Exception as e:
