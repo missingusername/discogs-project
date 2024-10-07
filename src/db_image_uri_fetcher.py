@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from functools import wraps
 import os
 from pathlib import Path
+import re
 import socket
 import time
 from typing import List, Optional, Tuple
@@ -75,7 +76,7 @@ class DatabaseManager:
         limit: int,
         as_list=False,
     ) -> Optional[List[dict]]:
-        logger.info(f"Retrieving documents without image URI, limit: {limit}, as_list: {as_list}")
+        logger.debug(f"Retrieving documents without image URI, limit: {limit}, as_list: {as_list}")
         try:
             query = {
                 "$and": [
@@ -134,7 +135,7 @@ class DatabaseManager:
 
             if bulk_operations:
                 result = self.collection.bulk_write(bulk_operations)
-                logger.info(f"Bulk write result: {result.bulk_api_result}")
+                logger.debug(f"Bulk write result: {result.bulk_api_result}")
             return True
         except pymongo.errors.BulkWriteError as e:
             logger.error(f"Bulk write operation failed: {e}")
@@ -200,8 +201,22 @@ class DiscogsFetcher:
         return None
 
     @rate_limited
+    def make_request(self, url, headers, params):
+        response = self.session.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        self.update_rate_limiter(response)
+        return response
+
+    def update_rate_limiter(self, response):
+        remaining = int(response.headers.get('X-Discogs-Ratelimit-Remaining', self.rate_limiter.remaining))
+        reset_time = float(response.headers.get('X-Discogs-Ratelimit-Reset', time.time() + 60))
+        logger.debug(f"API Response - Rate limit remaining: {remaining}, reset time: {reset_time}")
+        logger.debug(f"Before update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
+        self.rate_limiter.update_limits(remaining, reset_time)
+        logger.debug(f"After update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
+
+    @rate_limited
     def fetch_master_popularity(self, master_id, document):
-        
         try:
             url = "https://api.discogs.com/database/search"
             headers = {
@@ -212,22 +227,52 @@ class DiscogsFetcher:
             params = {
                 'release_title': document.get("title"),
                 'type': 'master',
-                'year': document.get("year"),
             }
             start_time = time.time()
-            response = self.session.get(url, headers=headers, params=params)
-            response.raise_for_status()
             
-            # Update rate limiter based on response headers
-            remaining = int(response.headers.get('X-Discogs-Ratelimit-Remaining', self.rate_limiter.remaining))
-            reset_time = float(response.headers.get('X-Discogs-Ratelimit-Reset', time.time() + 60))
-            logger.debug(f"API Response - Rate limit remaining: {remaining}, reset time: {reset_time}")
-            logger.debug(f"Before update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
-            self.rate_limiter.update_limits(remaining, reset_time)
-            logger.debug(f"After update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
-
+            response = self.make_request(url, headers, params)
             search_data = response.json()
+            num_items = search_data.get('pagination', {}).get('items', 0)
             master_data = self._find_result_by_master_id(search_data, master_id)
+            
+            logger.debug(f"Initial search for master_id {master_id} returned {num_items} results. Master data found: {master_data is not None}")
+           
+            # If cant find a match due to pagination, retry with modified parameters to narrow search
+            if master_data is None and num_items >= 50:
+                logger.warning(f"More than 50 results found for {master_id}, modifying parameters and retrying.")
+                genres = document.get("genres")
+                artists = document.get("artist_names")
+                if genres:
+                    params['genre'] = ','.join(genres)
+                if artists:
+                    # Clean artist names by removing parentheses containing a single number
+                    cleaned_artists = [re.sub(r'\s*\(\d\)\s*', '', artist) for artist in artists]
+                    params['artist'] = ','.join(cleaned_artists)
+                logger.debug(f"Modified search parameters: {params}")
+                response = self.make_request(url, headers, params)
+                search_data = response.json()
+                num_items = search_data.get('pagination', {}).get('items', 0)
+                master_data = self._find_result_by_master_id(search_data, master_id)
+                if master_data:
+                    logger.info(f"Found master ID {master_id} after retry.")
+                else:
+                    logger.warning(f"{num_items} results found for {master_id} after retry. Exiting.")
+                    return None, response.status_code, time.time() - start_time, None
+
+            # Handle edge cases
+            if num_items == 0 or master_data is None:
+                logger.warning(f"{num_items} results found for Master ID: {master_id} (Release_title: {document.get('title')}), modifying parameters and retrying.")
+                params['query'] = params.pop('release_title')
+                response = self.make_request(url, headers, params)
+                search_data = response.json()
+                num_items = search_data.get('pagination', {}).get('items', 0)
+                logger.debug(f"Retry search returned {num_items} results. Master data found: {master_data is not None}")
+                if num_items == 0 or master_data is None:
+                    logger.warning("No results found after retry. Exiting.")
+                    return None, response.status_code, time.time() - start_time, None
+            
+            
+            
             if master_data:
                 image_uri = master_data.get('cover_image', "Image not available")
                 popularity = master_data.get('community', {})
@@ -241,7 +286,7 @@ class DiscogsFetcher:
                 return "Image not available", e.response.status_code, time.time() - start_time, None
             elif e.response.status_code == 429:
                 retry_after = int(e.response.headers.get("Retry-After", 30))
-                logger.error(f"Rate limit exceeded. Updating rate limiter.")
+                logger.warning(f"Rate limit exceeded. Updating rate limiter.")
                 self.rate_limiter.update_limits(0, time.time() + retry_after)
                 return None, e.response.status_code, time.time() - start_time, None
             else:
@@ -360,7 +405,7 @@ class DiscogsFetcher:
 
                     if updated_documents:
                         if self.mongodb_client.update_documents_batch(updated_documents, timestamp=timestamp):
-                            logger.info(f"Processed and updated {len(updated_documents)} documents.")
+                            logger.debug(f"Processed and updated {len(updated_documents)} documents.")
                         else:
                             logger.warning("Failed to update documents in the database.")
                     else:
@@ -372,7 +417,7 @@ class DiscogsFetcher:
                         avg_time = sum(request_times) / len(request_times)
                         max_time = max(request_times)
                         min_time = min(request_times)
-                        logger.info(f"Request time stats - Total: {sum_time:.2f}s, Avg: {avg_time:.2f}s, Max: {max_time:.2f}s, Min: {min_time:.2f}s")
+                        logger.debug(f"Request time stats - Total: {sum_time:.2f}s, Avg: {avg_time:.2f}s, Max: {max_time:.2f}s, Min: {min_time:.2f}s")
 
             except KeyboardInterrupt:
                 logger.error("Keyboard interrupt detected. Resetting fetching status for current batch.")
@@ -384,7 +429,7 @@ class DiscogsFetcher:
 
             end_time = time.time()  # Stop the timer
             elapsed_time = end_time - start_time
-            logger.info(f"Batch processing time: {elapsed_time:.2f} seconds")
+            logger.debug(f"Batch processing time: {elapsed_time:.2f} seconds")
 
 
 @app.command()
