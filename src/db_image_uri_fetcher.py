@@ -187,6 +187,12 @@ class DiscogsFetcher:
         self.session = requests.Session()
         self.rate_limiter = RateLimiter(max_requests=60, period=60)
 
+    def _find_result_by_master_id(data, target_master_id):
+        for result in data['results']:
+            if result['master_id'] == target_master_id:
+                return result
+        return None
+
     @rate_limited
     def fetch_master_popularity(self, master_id, document):
         
@@ -197,12 +203,48 @@ class DiscogsFetcher:
                 'Authorization': f"Discogs token={self.user_token}",
                 'Accept': 'application/vnd.discogs.v2.discogs+json'
             }
+            params = {
+                'type': 'master',
+                'release_title': document.get("title"),
+                'artist': document.get("artist_names"),
+                'year': document.get("year"),
+            }
             start_time = time.time()
-            response = self.session.get(url, headers=headers)
+            response = self.session.get(url, headers=headers, params=params)
             response.raise_for_status()
+            
+            # Update rate limiter based on response headers
+            remaining = int(response.headers.get('X-Discogs-Ratelimit-Remaining', self.rate_limiter.remaining))
+            reset_time = float(response.headers.get('X-Discogs-Ratelimit-Reset', time.time() + 60))
+            logger.debug(f"API Response - Rate limit remaining: {remaining}, reset time: {reset_time}")
+            logger.debug(f"Before update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
+            self.rate_limiter.update_limits(remaining, reset_time)
+            logger.debug(f"After update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
+
+            search_data = response.json()
+            master_data = self._find_result_by_master_id(search_data, master_id)
+            if master_data:
+                image_uri = master_data.get('cover_image', "Image not available")
+                popularity = master_data.get('community', {})
+                return image_uri, response.status_code, time.time() - start_time, popularity
+            else:
+                logger.warning(f"Master ID {master_id} not found in search results. Setting image URI to 'Image not available'.")
+                return "Image not available", response.status_code, time.time() - start_time, None
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                logger.error(f"Master ID {master_id} not found. Setting image URI to 'Image not available'.")
+                return "Image not available", e.response.status_code, time.time() - start_time, None
+            elif e.response.status_code == 429:
+                retry_after = int(e.response.headers.get("Retry-After", 30))
+                logger.error(f"Rate limit exceeded. Updating rate limiter.")
+                self.rate_limiter.update_limits(0, time.time() + retry_after)
+                return None, e.response.status_code, time.time() - start_time, None
+            else:
+                logger.error(f"HTTP error when fetching image URI for master_id {master_id}: {e}")
+                return None, e.response.status_code, time.time() - start_time, None
         except Exception as e:
-            logger.error(f"HTTP error when fetching image URI for master_id: {e}")
-            return None, e.response.status_code, time.time() - start_time, None
+            logger.error(f"Unexpected error when fetching image URI for master_id {master_id}: {e}")
+            return None, 0, time.time() - start_time, None
 
     @rate_limited
     def fetch_image_uri_and_tracklist(self, master_id) -> Tuple[Optional[str], int, float, Optional[List[dict]]]:
