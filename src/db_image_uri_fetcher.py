@@ -1,4 +1,5 @@
-from collections import deque
+# Skal refactor DiscogsFetchers fetching metoder til at returne en tuple med værdier
+
 from contextlib import contextmanager
 from functools import wraps
 import os
@@ -6,7 +7,7 @@ from pathlib import Path
 import re
 import socket
 import time
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 import netifaces
@@ -113,18 +114,20 @@ class DatabaseManager:
         try:
             bulk_operations = []
             for document in documents:
-                update_fields = {
-                    "album_cover": {
-                        "image_uri": document["image_uri"],
-                        "fetching_status": "processed"
-                    }
-                }
-                if "tracklist" in document:
-                    update_fields["tracklist"] = document["tracklist"]
-                if "popularity" in document:
-                    update_fields["popularity"] = document["popularity"]
+                update_fields = {}
+                album_cover_fields = document.get("album_cover", {})
+
+                # Handle all other fields dynamically
+                for key, value in document.items():
+                    if key not in ["_id", "image_uri", "album_cover"]:
+                        update_fields[key] = value
+
                 if timestamp:
-                    update_fields["album_cover"]["uri_time_fetched"] = time.time()
+                    album_cover_fields["uri_time_fetched"] = time.time()
+
+                if album_cover_fields:
+                    album_cover_fields["fetching_status"] = "processed"
+                    update_fields["album_cover"] = album_cover_fields
 
                 bulk_operations.append(
                     pymongo.UpdateOne(
@@ -139,7 +142,7 @@ class DatabaseManager:
             return True
         except pymongo.errors.BulkWriteError as e:
             logger.error(f"Bulk write operation failed: {e}")
-            return False
+        return False
         
     def reset_fetching_status(self, document_ids: List):
         logger.debug(f"Resetting fetching status for {len(document_ids)} documents")
@@ -216,7 +219,7 @@ class DiscogsFetcher:
         logger.debug(f"After update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
 
     @rate_limited
-    def fetch_master_popularity(self, master_id, document):
+    def fetch_master_popularity(self, master_id: int, document: dict):
         try:
             url = "https://api.discogs.com/database/search"
             headers = {
@@ -224,9 +227,13 @@ class DiscogsFetcher:
                 'Authorization': f"Discogs token={self.user_token}",
                 'Accept': 'application/vnd.discogs.v2.discogs+json'
             }
+            cleaned_artists = [re.sub(r'\s*\(\d\)\s*', '', artist) for artist in document.get("artist_names", [])]
+            
             params = {
                 'release_title': document.get("title"),
                 'type': 'master',
+                'artist': ','.join(cleaned_artists)
+                
             }
             start_time = time.time()
             
@@ -271,12 +278,17 @@ class DiscogsFetcher:
                     logger.warning("No results found after retry. Exiting.")
                     return None, response.status_code, time.time() - start_time, None
             
-            
-            
             if master_data:
-                image_uri = master_data.get('cover_image', "Image not available")
-                popularity = master_data.get('community', {})
-                return image_uri, response.status_code, time.time() - start_time, popularity
+                # Construct dictionary here
+                new_document_fields = {
+                    'image_uri': master_data.get('cover_image', "Image not available"),
+                    'popularity': master_data.get('community', {}),
+                    'year': master_data.get('year', 0),
+                    'country': master_data.get('country', ""),
+                    'format': master_data.get('format', [])
+                }
+                
+                return new_document_fields, response.status_code, time.time() - start_time
             else:
                 logger.warning(f"Master ID {master_id} not found in search results. Setting image URI to 'Image not available'.")
                 return "Image not available", response.status_code, time.time() - start_time, None
@@ -297,7 +309,7 @@ class DiscogsFetcher:
             return None, 0, time.time() - start_time, None
 
     @rate_limited
-    def fetch_image_uri_and_tracklist(self, master_id) -> Tuple[Optional[str], int, float, Optional[List[dict]]]:
+    def fetch_image_uri_and_tracklist(self, master_id: int):
         try:
             url = f"https://api.discogs.com/masters/{master_id}"
             headers = {
@@ -318,9 +330,11 @@ class DiscogsFetcher:
             logger.debug(f"After update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
             
             master_data = response.json()
-            image_uri = master_data['images'][0]['uri'] if master_data.get('images') else "Image not available"
-            track_list = master_data['tracklist'] if master_data.get('tracklist') else []
-            return image_uri, response.status_code, time.time() - start_time, track_list
+            new_document_fields = {
+            'image_uri': master_data['images'][0]['uri'] if master_data.get('images') else "Image not available",
+            'track_list': master_data['tracklist'] if master_data.get('tracklist') else []
+            }
+            return new_document_fields, response.status_code, time.time() - start_time
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 logger.error(f"Master ID {master_id} not found. Setting image URI to 'Image not available'.")
@@ -348,7 +362,7 @@ class DiscogsFetcher:
 
     def process_batch(self, batch_size=100, timestamp=False):
         while True:
-            start_time = time.time()  # Start the timer
+            start_time = time.time()
             documents = self.mongodb_client.retrieve_documents_without_image_uri(limit=batch_size, as_list=True)
             if not documents:
                 logger.info("No more documents to process")
@@ -369,9 +383,9 @@ class DiscogsFetcher:
                         if master_id:
                             while True:
                                 if self.fetch_mode == "tracklist":
-                                    image_uri, status_code, request_time, track_list = self.fetch_image_uri_and_tracklist(master_id)
+                                    document_fields, status_code, request_time = self.fetch_image_uri_and_tracklist(master_id)
                                 elif self.fetch_mode == "popularity":
-                                    image_uri, status_code, request_time, popularity = self.fetch_master_popularity(master_id, document)
+                                    document_fields, status_code, request_time = self.fetch_master_popularity(master_id, document)
                                 else:
                                     logger.error(f"Unknown fetch mode: {self.fetch_mode}")
                                     raise ValueError(f"Unknown fetch mode: {self.fetch_mode}")
@@ -384,22 +398,15 @@ class DiscogsFetcher:
                                     time.sleep(sleep_time)
                                     continue
 
-                                if self.fetch_mode == "tracklist":
-                                    if track_list is not None:
-                                        document["tracklist"] = track_list
-                                elif self.fetch_mode == "popularity":
-                                    if popularity is not None:
-                                        document["popularity"] = popularity
-
-                                if image_uri is not None:
-                                    document["image_uri"] = image_uri
+                                if document_fields:
+                                    # Update document with new fields
+                                    if 'image_uri' in document_fields:
+                                        document['album_cover'] = document.get('album_cover', {})
+                                        document['album_cover']['image_uri'] = document_fields.pop('image_uri')
+                                    document.update(document_fields)
                                     updated_documents.append(document)
                                 else:
-                                    logger.warning(f"Failed to fetch image URI for master_id {master_id}. Status code: {status_code}")
-                                    if self.fetch_mode == "tracklist" and track_list is not None:
-                                        updated_documents.append(document)
-                                    elif self.fetch_mode == "popularity" and popularity is not None:
-                                        updated_documents.append(document)
+                                    logger.warning(f"Failed to fetch data for master_id {master_id}. Status code: {status_code}")
 
                                 break  # Exit the while loop after successful fetch or non-429 error
 
@@ -414,7 +421,7 @@ class DiscogsFetcher:
                     # Log request time statistics
                     if request_times:
                         sum_time = sum(request_times)
-                        avg_time = sum(request_times) / len(request_times)
+                        avg_time = sum_time / len(request_times)
                         max_time = max(request_times)
                         min_time = min(request_times)
                         logger.debug(f"Request time stats - Total: {sum_time:.2f}s, Avg: {avg_time:.2f}s, Max: {max_time:.2f}s, Min: {min_time:.2f}s")
@@ -427,7 +434,7 @@ class DiscogsFetcher:
                 logger.error(f"An error occurred during batch processing: {e}")
                 raise
 
-            end_time = time.time()  # Stop the timer
+            end_time = time.time()
             elapsed_time = end_time - start_time
             logger.debug(f"Batch processing time: {elapsed_time:.2f} seconds")
 
