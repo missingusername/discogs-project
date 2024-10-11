@@ -291,22 +291,22 @@ class DiscogsFetcher:
                 return new_document_fields, response.status_code, time.time() - start_time
             else:
                 logger.warning(f"Master ID {master_id} not found in search results. Setting image URI to 'Image not available'.")
-                return "Image not available", response.status_code, time.time() - start_time, None
+                return "Image not available", response.status_code, time.time() - start_time
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 logger.error(f"Master ID {master_id} not found. Setting image URI to 'Image not available'.")
-                return "Image not available", e.response.status_code, time.time() - start_time, None
+                return "Image not available", e.response.status_code, time.time() - start_time
             elif e.response.status_code == 429:
                 retry_after = int(e.response.headers.get("Retry-After", 30))
                 logger.warning(f"Rate limit exceeded. Updating rate limiter.")
                 self.rate_limiter.update_limits(0, time.time() + retry_after)
-                return None, e.response.status_code, time.time() - start_time, None
+                return None, e.response.status_code, time.time() - start_time
             else:
                 logger.error(f"HTTP error when fetching image URI for master_id {master_id}: {e}")
-                return None, e.response.status_code, time.time() - start_time, None
+                return None, e.response.status_code, time.time() - start_time
         except Exception as e:
             logger.error(f"Unexpected error when fetching image URI for master_id {master_id}: {e}")
-            return None, 0, time.time() - start_time, None
+            return None, 0, time.time() - start_time
 
     @rate_limited
     def fetch_image_uri_and_tracklist(self, master_id: int):
