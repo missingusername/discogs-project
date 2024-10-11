@@ -424,7 +424,7 @@ class DiscogsFetcher:
                         avg_time = sum_time / len(request_times)
                         max_time = max(request_times)
                         min_time = min(request_times)
-                        logger.debug(f"Request time stats - Total: {sum_time:.2f}s, Avg: {avg_time:.2f}s, Max: {max_time:.2f}s, Min: {min_time:.2f}s")
+                        logger.info(f"Request time stats - Total: {sum_time:.2f}s, Avg: {avg_time:.2f}s, Max: {max_time:.2f}s, Min: {min_time:.2f}s")
 
             except KeyboardInterrupt:
                 logger.error("Keyboard interrupt detected. Resetting fetching status for current batch.")
