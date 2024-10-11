@@ -1,10 +1,12 @@
 customtkinter==5.2.2
 discogs_client==2.3.0
 matplotlib==3.9.2
-numpy==2.1.1
+netifaces==0.11.0
+numpy==2.1.2
 pandas==2.2.3
 Pillow==10.4.0
-pymongo==4.9.1
+pymongo==4.10.1
 python-dotenv==1.0.1
 Requests==2.32.3
 tqdm==4.66.2
+typer==0.12.5
