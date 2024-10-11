@@ -216,6 +216,7 @@ class DiscogsFetcher:
         logger.debug(f"API Response - Rate limit remaining: {remaining}, reset time: {reset_time}")
         logger.debug(f"Before update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
         self.rate_limiter.update_limits(remaining, reset_time)
+        logger.warning(response.headers)
         logger.debug(f"After update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
 
     @rate_limited
@@ -328,6 +329,7 @@ class DiscogsFetcher:
             logger.debug(f"Before update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
             self.rate_limiter.update_limits(remaining, reset_time)
             logger.debug(f"After update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
+            logger.warning(response.headers.get("X-Discogs-Ratelimit-Reset"))
             
             master_data = response.json()
             new_document_fields = {
@@ -338,18 +340,18 @@ class DiscogsFetcher:
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 logger.error(f"Master ID {master_id} not found. Setting image URI to 'Image not available'.")
-                return "Image not available", e.response.status_code, time.time() - start_time, None
+                return "Image not available", e.response.status_code, time.time() - start_time
             elif e.response.status_code == 429:
                 retry_after = int(e.response.headers.get("Retry-After", 30))
                 logger.error(f"Rate limit exceeded. Updating rate limiter.")
                 self.rate_limiter.update_limits(0, time.time() + retry_after)
-                return None, e.response.status_code, time.time() - start_time, None
+                return None, e.response.status_code, time.time() - start_time
             else:
                 logger.error(f"HTTP error when fetching image URI for master_id {master_id}: {e}")
-                return None, e.response.status_code, time.time() - start_time, None
+                return None, e.response.status_code, time.time() - start_time
         except Exception as e:
             logger.error(f"Unexpected error when fetching image URI for master_id {master_id}: {e}")
-            return None, 0, time.time() - start_time, None
+            return None, 0, time.time() - start_time
     
     @contextmanager
     def reset_fetching_status_on_exit(self, document_ids):
@@ -386,6 +388,7 @@ class DiscogsFetcher:
                                     document_fields, status_code, request_time = self.fetch_image_uri_and_tracklist(master_id)
                                 elif self.fetch_mode == "popularity":
                                     document_fields, status_code, request_time = self.fetch_master_popularity(master_id, document)
+                                    time.sleep(0.6)
                                 else:
                                     logger.error(f"Unknown fetch mode: {self.fetch_mode}")
                                     raise ValueError(f"Unknown fetch mode: {self.fetch_mode}")
@@ -479,7 +482,7 @@ def fetch_images(
             typer.secho("DISCOGS_API_KEY environment variable not set or empty", fg=typer.colors.RED)
             raise typer.Exit(code=1)
         
-        fetcher = DiscogsFetcher(discogs_user_token, mongodb_client, user_agent, 'popularity')
+        fetcher = DiscogsFetcher(discogs_user_token, mongodb_client, user_agent, 'tracklist')
         fetcher.process_batch(batch_size=batch_size, timestamp=timestamp)
 
     except Exception as e:
