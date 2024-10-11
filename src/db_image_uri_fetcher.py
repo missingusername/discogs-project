@@ -264,7 +264,7 @@ class DiscogsFetcher:
                     logger.info(f"Found master ID {master_id} after retry.")
                 else:
                     logger.warning(f"{num_items} results found for {master_id} after retry. Exiting.")
-                    return None, response.status_code, time.time() - start_time, None
+                    return None, response.status_code, time.time() - start_time
 
             # Handle edge cases
             if num_items == 0 or master_data is None:
@@ -276,7 +276,7 @@ class DiscogsFetcher:
                 logger.debug(f"Retry search returned {num_items} results. Master data found: {master_data is not None}")
                 if num_items == 0 or master_data is None:
                     logger.warning("No results found after retry. Exiting.")
-                    return None, response.status_code, time.time() - start_time, None
+                    return None, response.status_code, time.time() - start_time
             
             if master_data:
                 # Construct dictionary here
@@ -441,7 +441,7 @@ class DiscogsFetcher:
 
 @app.command()
 def fetch_images(
-    batch_size: int = typer.Option(12, help="Number of documents to process in each batch"),
+    batch_size: int = typer.Option(60, help="Number of documents to process in each batch"),
     env_file: Optional[Path] = typer.Option(None, help="Path to the .env file"),
     mongo_uri: Optional[str] = typer.Option(None, help="MongoDB URI"),
     db_name: str = typer.Option("discogs_data", help="MongoDB database name"),
@@ -456,7 +456,8 @@ def fetch_images(
         if env_file:
             load_dotenv(dotenv_path=env_file)
         else:
-            env_file_path = Path(__file__).resolve().parents[1] / ".env"
+            env_file_path = Path(__file__).resolve().parents[2] / "Discogs/" ".env"
+            logger.info(env_file_path)
             load_dotenv(dotenv_path=env_file_path)
         
         if not mongo_uri:
