@@ -23,7 +23,7 @@ app = typer.Typer()
 
 class NetworkUtils:
     @staticmethod
-    def get_machine_ip():
+    def get_local_machine_ip():
         ip_addresses = []
         
         # Method 1: Using socket
@@ -58,6 +58,18 @@ class NetworkUtils:
         else:
             logger.info(f"Found multiple IP addresses: {[ip for _, ip in ip_addresses]}")
             return ip_addresses[0][1]  # Returning the first non-loopback IP found
+        
+    @staticmethod
+    def get_external_machine_ip():
+        try:
+            response = requests.get("https://api.ipify.org")
+            response.raise_for_status()
+            external_ip = response.text
+            logger.info(f"External IP address: {external_ip}")
+            return external_ip
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to fetch external IP address: {e}")
+            return None
 
 class DatabaseManager:
     def __init__(self, uri: str, db_name: str, collection_name: str):
