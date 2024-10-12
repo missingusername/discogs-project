@@ -94,7 +94,7 @@ class DatabaseManager:
         self,
         limit: int,
         as_list=False,
-        log_execution=True,
+        log_execution=False,
     ) -> Optional[List[dict]]:
         logger.debug(
             f"Retrieving documents without image URI, limit: {limit}, as_list: {as_list}"
@@ -396,6 +396,7 @@ class DiscogsFetcher:
 
     @rate_limited
     def fetch_image_uri_and_tracklist(self, master_id: int):
+        start_time = time.time()
         try:
             url = f"https://api.discogs.com/masters/{master_id}"
             headers = {
@@ -403,67 +404,40 @@ class DiscogsFetcher:
                 "Authorization": f"Discogs token={self.user_token}",
                 "Accept": "application/vnd.discogs.v2.discogs+json",
             }
-            start_time = time.time()
             response = self.session.get(url, headers=headers)
             response.raise_for_status()
 
             # Update rate limiter based on response headers
-            remaining = int(
-                response.headers.get(
-                    "X-Discogs-Ratelimit-Remaining", self.rate_limiter.remaining
-                )
-            )
-            reset_time = float(
-                response.headers.get("X-Discogs-Ratelimit-Reset", time.time() + 60)
-            )
-            logger.debug(
-                f"API Response - Rate limit remaining: {remaining}, reset time: {reset_time}"
-            )
-            logger.debug(
-                f"Before update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}"
-            )
+            remaining = int(response.headers.get("X-Discogs-Ratelimit-Remaining", self.rate_limiter.remaining))
+            reset_time = float(response.headers.get("X-Discogs-Ratelimit-Reset", time.time() + 60))
+            logger.debug(f"API Response - Rate limit remaining: {remaining}, reset time: {reset_time}")
+            logger.debug(f"Before update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
             self.rate_limiter.update_limits(remaining, reset_time)
-            logger.debug(
-                f"After update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}"
-            )
+            logger.debug(f"After update - Rate limiter state: remaining={self.rate_limiter.remaining}, reset_time={self.rate_limiter.reset_time}")
 
             master_data = response.json()
             new_document_fields = {
-                "image_uri": (
-                    master_data["images"][0]["uri"]
-                    if master_data.get("images")
-                    else "Image not available"
-                ),
-                "track_list": (
-                    master_data["tracklist"] if master_data.get("tracklist") else []
-                ),
+                "image_uri": master_data["images"][0]["uri"] if master_data.get("images") else "Image not available",
+                "track_list": master_data.get("tracklist", []),
             }
             return new_document_fields, response.status_code, time.time() - start_time
+
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
-                logger.error(
-                    f"Master ID {master_id} not found. Setting image URI to 'Image not available'."
-                )
-                return (
-                    "Image not available",
-                    e.response.status_code,
-                    time.time() - start_time,
-                )
+                logger.error(f"Master ID {master_id} not found. Setting image URI to 'Image not available'.")
+                return {"image_uri": "Image not available", "track_list": []}, e.response.status_code, time.time() - start_time
             elif e.response.status_code == 429:
                 retry_after = int(e.response.headers.get("Retry-After", 30))
                 logger.error(f"Rate limit exceeded. Updating rate limiter.")
                 self.rate_limiter.update_limits(0, time.time() + retry_after)
-                return None, e.response.status_code, time.time() - start_time
+                return {"error": "Rate limit exceeded"}, e.response.status_code, time.time() - start_time
             else:
-                logger.error(
-                    f"HTTP error when fetching image URI for master_id {master_id}: {e}"
-                )
-                return None, e.response.status_code, time.time() - start_time
+                logger.error(f"HTTP error when fetching image URI for master_id {master_id}: {e}")
+                return {"error": f"HTTP error: {e}"}, e.response.status_code, time.time() - start_time
+
         except Exception as e:
-            logger.error(
-                f"Unexpected error when fetching image URI for master_id {master_id}: {e}"
-            )
-            return None, 0, time.time() - start_time
+            logger.error(f"Unexpected error when fetching image URI for master_id {master_id}: {e}")
+            return {"error": f"Unexpected error: {e}"}, 0, time.time() - start_time
 
     @contextmanager
     def reset_fetching_status_on_exit(self, document_ids):
@@ -541,6 +515,16 @@ class DiscogsFetcher:
                                         )
                                         document["album_cover"]["image_uri"] = (
                                             document_fields.pop("image_uri")
+                                        )
+                                    if "error" in document_fields:
+                                        document["album_cover"] = document.get(
+                                            "album_cover", {}
+                                        )
+                                        document["album_cover"]["image_uri"] = (
+                                            "Image not available"
+                                        )
+                                        document["album_cover"]["error"] = (
+                                            document_fields.pop("error")
                                         )
                                     document.update(document_fields)
                                     updated_documents.append(document)
