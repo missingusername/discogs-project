@@ -12,9 +12,9 @@ class Album:
         self.image_uri = image_uri
         self.cover_desc = None
 
-def initialize_client(api_key):
+def initialize_client(user_api_key):
     print("Initializing client...")
-    return InferenceClient(api_key=api_key)
+    return InferenceClient(api_key=user_api_key)
 
 def prepare_messages(image, prompt):
     return [
@@ -28,20 +28,20 @@ def prepare_messages(image, prompt):
     ]
 
 def get_chat_completion(client, model, messages, max_tokens):
-    response = ""
     print("Getting chat completion...")
-    for message in client.chat_completion(
+    response = client.chat_completion(
         model=model,
         messages=messages,
         max_tokens=max_tokens,
-        stream=True,
-    ):
-        response += message.choices[0].delta.content
-    return response
+        stream=False,
+    )
+    return response.choices[0].message.content
 
 def image_prompt(client, model, image, prompt, max_tokens=300):
     messages = prepare_messages(image, prompt)
-    return get_chat_completion(client, model, messages, max_tokens)
+    response = get_chat_completion(client, model, messages, max_tokens)
+    print(f"Response received:\n{response}")
+    return response
 
 def connect_to_db(uri, db_name, collection_name):
     print("Connecting to database...")
@@ -61,12 +61,12 @@ def fetch_albums(collection, batch_size, max_batches=None):
     total_documents = collection.count_documents({"image_uri": {"$exists": True}, "cover_desc": {"$exists": False}})
     if max_batches:
         total_documents = min(total_documents, batch_size * max_batches)
-    for i in tqdm(range(0, total_documents, batch_size), ascii=True, desc="Fetching albums"):
+    for i in tqdm(range(0, total_documents, batch_size), ascii=True, desc="Fetching album batch..."):
         documents = list(collection.find(
             {"image_uri": {"$exists": True}, "cover_desc": {"$exists": False}}
         ).sort("master_id", pymongo.ASCENDING).limit(batch_size).allow_disk_use(True))
         
-        for doc in documents:
+        for doc in tqdm(documents, desc="Processing batch..."):
             album = Album(
                 master_id=doc["master_id"],
                 artist=doc["artist_names"],
@@ -117,7 +117,8 @@ def process_albums(client, model, albums):
 def main():
     print("Starting main process...")
     load_dotenv()
-    api_key = "HF_API_KEY"
+    api_key = os.getenv("HF_API_KEY")
+    print(f"API key: {api_key}")
     client = initialize_client(api_key)
     model = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 
@@ -126,7 +127,7 @@ def main():
     collection_name = "fiveK-albums-sample-copy"
     collection = connect_to_db(mongo_uri, db_name, collection_name)
 
-    batch_size = 16
+    batch_size = 10  # Number of documents to retrieve per batch
     max_batches = 1  # Optional: Set to None to process entire db
 
     albums = fetch_albums(collection, batch_size, max_batches)
