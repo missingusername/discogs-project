@@ -195,6 +195,7 @@ class SlidingWindowRateLimiter:
         self.period = period
         self.window = deque()
         self.last_request_time = 0
+        self.backoff_time = 1  # Initial backoff time in seconds
 
     def _clean_window(self, current_time):
         while self.window and current_time - self.window[0] > self.period:
@@ -222,8 +223,13 @@ class SlidingWindowRateLimiter:
         self.window.append(current_time)
         self.last_request_time = current_time
 
-        if len(self.window) > self.max_requests:
-            self.window.popleft()
+        # Reset backoff time after a successful request
+        self.backoff_time = 1
+
+    def backoff(self):
+        logger.debug(f"Backing off for {self.backoff_time} seconds")
+        time.sleep(self.backoff_time)
+        self.backoff_time = min(self.backoff_time * 2, 60)
 
 
 class DiscogsFetcher:
@@ -242,10 +248,15 @@ class DiscogsFetcher:
         return None
 
     def make_request(self, url, headers, params=None):
-        self.rate_limiter.wait_for_token()
-        response = self.session.get(url, headers=headers, params=params)
-        response.raise_for_status()
-        return response
+        while True:
+            self.rate_limiter.wait_for_token()
+            response = self.session.get(url, headers=headers, params=params)
+            if response.status_code == 429:
+                logger.warning("Received 429 Too Many Requests. Backing off...")
+                self.rate_limiter.backoff()
+            else:
+                response.raise_for_status()
+                return response
 
     def fetch_master_popularity(self, master_id: int, document: dict):
         try:
