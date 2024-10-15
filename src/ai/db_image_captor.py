@@ -103,7 +103,6 @@ def process_albums(client, model, albums):
         prompt = f"""
         Visually describe this album cover. 
         The album is {album.album_title} by {album.artist}. 
-        only write 4-6 sentences. 
         don't comment on the mood/emotions of the image. ONLY describe the visual elements. 
         be structured and concise.
 
