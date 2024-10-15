@@ -50,7 +50,7 @@ def image_prompt(client, model, image, prompt, max_tokens=300):
 
 def connect_to_db(uri, db_name, collection_name):
     print("Connecting to database...")
-    mongo_uri = os.getenv(uri)
+    mongo_uri = uri
     client = pymongo.MongoClient(mongo_uri)
     db = client[db_name]
     collection = db[collection_name]
@@ -101,12 +101,11 @@ def process_albums(client, model, albums):
     for album in albums:
         print(f"Processing album: {album.album_title} by {album.artist}")
         prompt = f"""
-        Visually describe this album cover. 
-        The album is {album.album_title} by {album.artist}. 
-        don't comment on the mood/emotions of the image. ONLY describe the visual elements. 
-        be structured and concise.
+        This is the album cover for "{album.album_title}" by "{album.artist}". 
+        ONLY describe the visual elements. Don't comment on the mood/emotions of the image.
+        keep it brief and objective. dont go too much into details.
 
-        Follow this format, and incude all of the following sections. keep each section 2~3 sentences:
+        Follow this format, and include all of the following sections. only write 1-2 sentences per. section:
         **imagery & artwork:**
             describe the visual elements on the album cover
 
@@ -129,7 +128,7 @@ def main():
     client = initialize_client(api_key)
     model = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 
-    mongo_uri = "MONGODB_URI"
+    mongo_uri = os.getenv("MONGODB_URI")
     db_name = "album_covers"
     collection_name = "fiveK-albums-sample-copy"
     collection = connect_to_db(mongo_uri, db_name, collection_name)
