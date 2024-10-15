@@ -1,8 +1,13 @@
+
+import sys
 import os
 from tqdm import tqdm
 import pymongo
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
+
+# Ensure UTF-8 encoding for stdout
+sys.stdout.reconfigure(encoding='utf-8')
 
 class Album:
     def __init__(self, master_id, artist, album_title, image_uri):
@@ -99,18 +104,21 @@ def process_albums(client, model, albums):
         Visually describe this album cover. 
         The album is {album.album_title} by {album.artist}. 
         only write 4-6 sentences. 
-        don't explain or comment on the emotions it evokes. ONLY describe the visuals. 
-        be structured.
+        don't comment on the mood/emotions of the image. ONLY describe the visual elements. 
+        be structured and concise.
 
-        Follow this format:
-        **Central Image:**
-            describe the main image or object
+        Follow this format, and incude all of the following sections. keep each section 2~3 sentences:
+        **imagery & artwork:**
+            describe the visual elements on the album cover
+
+        **color scheme:**
+            describe the color palette used
 
         **Text Elements:**
-            describe any text elements on the image, inclu
-
-        **Background Context:**
-            describe the image background
+            describe any text elements on the image, including font style, color, and size
+        
+        **Composition & layout:**
+            describe the overall composition and layout of the image
         """
         album.cover_desc = image_prompt(client, model, album.image_uri, prompt)
 
