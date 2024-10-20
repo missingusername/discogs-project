@@ -1,23 +1,44 @@
 from contextlib import contextmanager
+from io import BytesIO
 import requests
 import re
 import time
 
+from PIL import Image
+from pymongo import MongoClient
 from tqdm import tqdm
 
 from .rate_limiter import SlidingWindowRateLimiter
 from ..utils.logger_utils import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, "Info")
+
 
 class DiscogsFetcher:
-    def __init__(self, user_token, mongodb_client, user_agent, mode):
+    def __init__(
+        self,
+        user_token: str,
+        mongodb_client: MongoClient,
+        user_agent: str,
+        rate_limit_stats: dict,
+        mode: str = None,
+    ):
         self.user_token = user_token
         self.mongodb_client = mongodb_client
         self.user_agent = user_agent
         self.session = requests.Session()
-        self.rate_limiter = SlidingWindowRateLimiter(max_requests=60, period=60)
+        self.rate_limiter = SlidingWindowRateLimiter(
+            max_requests=rate_limit_stats.get("max_reqs", 60),
+            period=rate_limit_stats.get("interval", 60),
+        )
         self.fetch_mode = mode
+
+    @staticmethod
+    def is_valid_image_url(image_url: str) -> bool:
+        """
+        Check if the given URL is valid.
+        """
+        return image_url.startswith("http://") or image_url.startswith("https://")
 
     def _find_result_by_master_id(self, data, target_master_id):
         for result in data["results"]:
@@ -25,7 +46,7 @@ class DiscogsFetcher:
                 return result
         return None
 
-    def make_request(self, url, headers, params=None):
+    def _make_request(self, url, headers, params=None):
         while True:
             self.rate_limiter.wait_for_token()
             response = self.session.get(url, headers=headers, params=params)
@@ -35,6 +56,39 @@ class DiscogsFetcher:
             else:
                 response.raise_for_status()
                 return response
+
+    def fetch_image_data(self, image_uri):
+        start_time = time.time()
+        if not image_uri or not self.is_valid_image_url(image_uri):
+            logger.error(f"Invalid image URI: {image_uri}. Skipping download.")
+            return {}, 400, time.time() - start_time
+
+        try:
+            headers = {
+                "User-Agent": self.user_agent,
+                "Authorization": f"Discogs token={self.user_token}",
+                "Accept": "application/vnd.discogs.v2.discogs+json",
+            }
+            response = self._make_request(image_uri, headers)
+
+            with BytesIO() as buffer:
+                img = Image.open(BytesIO(response.content)).convert("RGB")
+                image_format = img.format if img.format else "JPEG"
+                img.save(buffer, format=image_format)
+                buffer.seek(0)
+                image_data_dict = {
+                    "image_data": buffer.getvalue(),
+                    "data_time_fetched": time.time(),
+                    "fetching_status": "processed_and_downloaded",
+                }
+            document_fields = self._reshape_document_fields_to_embedded(
+                embedded_doc_key="album_cover", fields_to_add=image_data_dict
+            )
+            return document_fields, response.status_code, time.time() - start_time
+        except requests.exceptions.HTTPError as e:
+            status_code = e.response.status_code
+            logger.error(f"HTTP error when fetching image data: {e}")
+            return {}, status_code, time.time() - start_time
 
     def fetch_master_popularity(self, master_id: int, document: dict):
         try:
@@ -56,7 +110,7 @@ class DiscogsFetcher:
             }
             start_time = time.time()
 
-            response = self.make_request(url, headers, params)
+            response = self._make_request(url, headers, params)
             search_data = response.json()
             num_items = search_data.get("pagination", {}).get("items", 0)
             master_data = self._find_result_by_master_id(search_data, master_id)
@@ -81,7 +135,7 @@ class DiscogsFetcher:
                     ]
                     params["artist"] = ",".join(cleaned_artists)
                 logger.debug(f"Modified search parameters: {params}")
-                response = self.make_request(url, headers, params)
+                response = self._make_request(url, headers, params)
                 search_data = response.json()
                 num_items = search_data.get("pagination", {}).get("items", 0)
                 master_data = self._find_result_by_master_id(search_data, master_id)
@@ -99,7 +153,7 @@ class DiscogsFetcher:
                     f"{num_items} results found for Master ID: {master_id} (Release_title: {document.get('title')}), modifying parameters and retrying."
                 )
                 params["query"] = params.pop("release_title")
-                response = self.make_request(url, headers, params)
+                response = self._make_request(url, headers, params)
                 search_data = response.json()
                 num_items = search_data.get("pagination", {}).get("items", 0)
                 logger.debug(
@@ -154,14 +208,15 @@ class DiscogsFetcher:
             )
             return None, 0, time.time() - start_time
 
-    def _reshape_document_fields_to_embedded(self, embedded_doc_key: str, fields_to_add: dict):
+    def _reshape_document_fields_to_embedded(
+        self, embedded_doc_key: str, fields_to_add: dict
+    ):
         reshaped_document_fields = {}
         reshaped_document_fields[embedded_doc_key] = {}
         for key, value in fields_to_add.items():
             reshaped_document_fields[embedded_doc_key][key] = value
         return reshaped_document_fields
-            
-            
+
     def fetch_image_uri_and_tracklist(self, master_id: int):
         start_time = time.time()
         try:
@@ -171,7 +226,7 @@ class DiscogsFetcher:
                 "Authorization": f"Discogs token={self.user_token}",
                 "Accept": "application/vnd.discogs.v2.discogs+json",
             }
-            response = self.make_request(url, headers)
+            response = self._make_request(url, headers)
 
             master_data = response.json()
             album_document_fields = {
@@ -183,10 +238,10 @@ class DiscogsFetcher:
                 "uri_time_fetched": time.time(),
                 "fetching_status": "processed",
             }
-            tracklist_document_fields = {
-                "track_list": master_data.get("tracklist", [])
-            }
-            album_document_fields = self._reshape_document_fields_to_embedded(embedded_doc_key="album_cover", fields_to_add=album_document_fields)
+            tracklist_document_fields = {"track_list": master_data.get("tracklist", [])}
+            album_document_fields = self._reshape_document_fields_to_embedded(
+                embedded_doc_key="album_cover", fields_to_add=album_document_fields
+            )
             all_document_fields = {**album_document_fields, **tracklist_document_fields}
             return all_document_fields, response.status_code, time.time() - start_time
 
@@ -225,7 +280,19 @@ class DiscogsFetcher:
             self.mongodb_client.reset_fetching_status(document_ids)
             raise
 
-    def process_batch(self, batch_size=100, db_query_index=""):
+    def process_batch(
+        self,
+        batch_size=100,
+        db_query_index="",
+        embedded_fields_to_update=[],
+        total_num_images_to_download=50000,
+    ):
+        if self.fetch_mode == "img_download":
+            number_of_images = self.mongodb_client.check_num_documents_by_query(
+                "covers.get_num_albums_has_image_data.query"
+            )
+            logger.info(f"Number of images already downloaded: {number_of_images}")
+
         while True:
             start_time = time.time()
             documents = self.mongodb_client.retrieve_documents_by_query(
@@ -260,6 +327,26 @@ class DiscogsFetcher:
                                 document_fields, status_code, request_time = (
                                     self.fetch_master_popularity(master_id, document)
                                 )
+                            elif self.fetch_mode == "img_download":
+                                if total_num_images_to_download is None:
+                                    total_num_images_to_download = float("inf")
+
+                                logger.debug(
+                                    f"Number of images currently processed: {number_of_images}"
+                                )
+                                if number_of_images >= total_num_images_to_download:
+                                    logger.warning(
+                                        f"Reached the limit of {total_num_images_to_download} images to download. Exiting."
+                                    )
+                                    raise SystemExit(
+                                        "Download limit reached. Exiting script."
+                                    )
+                                image_uri = document.get("album_cover", {}).get(
+                                    "image_uri"
+                                )
+                                document_fields, status_code, request_time = (
+                                    self.fetch_image_data(image_uri)
+                                )
                             else:
                                 logger.error(f"Unknown fetch mode: {self.fetch_mode}")
                                 raise ValueError(
@@ -278,7 +365,7 @@ class DiscogsFetcher:
 
                     if updated_documents:
                         if self.mongodb_client.update_documents_batch(
-                            updated_documents
+                            updated_documents, embedded_fields=embedded_fields_to_update
                         ):
                             logger.info(
                                 f"Processed and updated {len(updated_documents)} documents."

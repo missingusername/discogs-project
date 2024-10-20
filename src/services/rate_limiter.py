@@ -12,6 +12,7 @@ class SlidingWindowRateLimiter:
         self.window = deque()
         self.last_request_time = 0
         self.backoff_time = 1  # Initial backoff time in seconds
+        logger.info(f"Rate limiter initialized with max_requests: {max_requests}, period: {period}")
 
     def _clean_window(self, current_time):
         while self.window and current_time - self.window[0] > self.period:
