@@ -1,235 +1,26 @@
-from collections import deque
 from contextlib import contextmanager
-from functools import wraps
 import os
 from pathlib import Path
 import re
-import socket
+import sys
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 from dotenv import load_dotenv
-import netifaces
-import pymongo
 import requests
 from tqdm import tqdm
 import typer
 
 from utils.logger_utils import get_logger
 
+project_root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(project_root))
+
+from src.services.database_manager import DatabaseManager
+from src.services.rate_limiter import SlidingWindowRateLimiter
+
 logger = get_logger(__name__, "INFO")
 app = typer.Typer()
-
-
-class NetworkUtils:
-    @staticmethod
-    def get_local_machine_ip():
-        ip_addresses = []
-
-        # Method 1: Using socket
-        try:
-            socket_ip = socket.gethostbyname(socket.gethostname())
-            if socket_ip != "127.0.0.1":
-                ip_addresses.append(("socket", socket_ip))
-            logger.info(f"[SOCKET] IP address: {socket_ip}")
-        except Exception as e:
-            logger.error(f"Failed to fetch IP address using socket: {e}")
-
-        # Method 2: Using netifaces (cross-platform)
-        try:
-            for interface in netifaces.interfaces():
-                addrs = netifaces.ifaddresses(interface)
-                if netifaces.AF_INET in addrs:
-                    for addr in addrs[netifaces.AF_INET]:
-                        ip = addr["addr"]
-                        if ip != "127.0.0.1":
-                            ip_addresses.append(("netifaces", ip))
-                            logger.info(f"[NETIFACES] IP address for {interface}: {ip}")
-        except Exception as e:
-            logger.error(f"Failed to fetch IP addresses using netifaces: {e}")
-
-        # Analyze results
-        if not ip_addresses:
-            logger.warning("No non-loopback IP addresses found.")
-            return None
-        elif len(ip_addresses) == 1:
-            logger.info(f"Found one IP address: {ip_addresses[0][1]}")
-            return ip_addresses[0][1]
-        else:
-            logger.info(
-                f"Found multiple IP addresses: {[ip for _, ip in ip_addresses]}"
-            )
-            return ip_addresses[0][1]  # Returning the first non-loopback IP found
-
-    @staticmethod
-    def get_external_machine_ip():
-        try:
-            response = requests.get("https://api.ipify.org")
-            response.raise_for_status()
-            external_ip = response.text
-            logger.info(f"External IP address: {external_ip}")
-            return external_ip
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to fetch external IP address: {e}")
-            return None
-
-
-class DatabaseManager:
-    def __init__(self, uri: str, db_name: str, collection_name: str):
-        logger.debug(
-            f"Initializing DatabaseManager with URI: {uri}, DB: {db_name}, Collection: {collection_name}"
-        )
-        try:
-            self.client = pymongo.MongoClient(uri)
-            self.db = self.client[db_name]
-            self.collection = self.db[collection_name]
-            # Test the connection
-            self.client.server_info()
-        except pymongo.errors.ConnectionFailure as e:
-            logger.error(f"Failed to connect to MongoDB: {e}")
-            raise
-
-    def retrieve_documents_without_image_uri(
-        self,
-        limit: int,
-        as_list=False,
-        log_execution=False,
-    ) -> Optional[List[dict]]:
-        logger.debug(
-            f"Retrieving documents without image URI, limit: {limit}, as_list: {as_list}"
-        )
-        start_time = time.time()
-        try:
-            query = {
-                "$and": [
-                    {
-                        "$or": [
-                            {"album_cover.image_uri": {"$exists": False}},
-                            {"album_cover.image_uri": ""},
-                        ]
-                    },
-                    {"album_cover.fetching_status": {"$ne": "fetching"}},
-                    {"image_uri": {"$exists": False}},
-                ]
-            }
-
-            if log_execution:
-                execution_plan = self.collection.find(query).explain()
-                logger.info(f"Query execution plan: {execution_plan}")
-
-            documents = []
-            for _ in range(limit):
-                document = self.collection.find_one_and_update(
-                    query,
-                    {"$set": {"album_cover.fetching_status": "fetching"}},
-                    return_document=pymongo.ReturnDocument.AFTER,
-                )
-                if document:
-                    documents.append(document)
-                else:
-                    break
-            logger.debug(f"Retrieved {len(documents)} documents")
-            return documents if as_list else iter(documents)
-        except pymongo.errors.OperationFailure as e:
-            logger.error(f"Failed to retrieve documents: {e}")
-            return None
-        finally:
-            end_time = time.time()
-            duration = end_time - start_time
-            logger.info(f"Time taken to retrieve documents: {duration:.2f} seconds")
-
-    def update_documents_batch(
-        self, documents: List[dict], timestamp: Optional[bool] = True
-    ) -> bool:
-        logger.info(
-            f"Updating batch of {len(documents)} documents with timestamp: {timestamp}"
-        )
-        try:
-            bulk_operations = []
-            for document in documents:
-                update_fields = {}
-                album_cover_fields = document.get("album_cover", {})
-
-                # Handle all other fields dynamically
-                for key, value in document.items():
-                    if key not in ["_id", "image_uri", "album_cover"]:
-                        update_fields[key] = value
-
-                if timestamp:
-                    album_cover_fields["uri_time_fetched"] = time.time()
-
-                if album_cover_fields:
-                    album_cover_fields["fetching_status"] = "processed"
-                    update_fields["album_cover"] = album_cover_fields
-
-                bulk_operations.append(
-                    pymongo.UpdateOne(
-                        {"_id": document["_id"]},
-                        {"$set": update_fields},
-                    )
-                )
-
-            if bulk_operations:
-                result = self.collection.bulk_write(bulk_operations)
-                logger.debug(f"Bulk write result: {result.bulk_api_result}")
-            return True
-        except pymongo.errors.BulkWriteError as e:
-            logger.error(f"Bulk write operation failed: {e}")
-        return False
-
-    def reset_fetching_status(self, document_ids: List):
-        logger.debug(f"Resetting fetching status for {len(document_ids)} documents")
-        try:
-            self.collection.update_many(
-                {"_id": {"$in": document_ids}},
-                {"$set": {"album_cover.fetching_status": "unprocessed"}},
-            )
-            logger.info(f"Reset fetching status for {len(document_ids)} documents")
-        except pymongo.errors.BulkWriteError as e:
-            logger.error(f"Failed to reset fetching status: {e}")
-
-
-class SlidingWindowRateLimiter:
-    def __init__(self, max_requests, period):
-        self.max_requests = max_requests
-        self.period = period
-        self.window = deque()
-        self.last_request_time = 0
-        self.backoff_time = 1  # Initial backoff time in seconds
-
-    def _clean_window(self, current_time):
-        while self.window and current_time - self.window[0] > self.period:
-            self.window.popleft()
-
-    def wait_for_token(self):
-        current_time = time.time()
-        self._clean_window(current_time)
-
-        if len(self.window) < self.max_requests:
-            wait_time = 0
-        else:
-            wait_time = max(0, self.period - (current_time - self.window[0]))
-
-        if self.window:
-            time_since_last_request = current_time - self.last_request_time
-            ideal_spacing = self.period / self.max_requests
-            if time_since_last_request < ideal_spacing:
-                wait_time = max(wait_time, ideal_spacing - time_since_last_request)
-
-        if wait_time > 0:
-            time.sleep(wait_time)
-
-        current_time = time.time()
-        self.window.append(current_time)
-        self.last_request_time = current_time
-
-        # Reset backoff time after a successful request
-        self.backoff_time = 1
-
-    def backoff(self):
-        logger.debug(f"Backing off for {self.backoff_time} seconds")
-        time.sleep(self.backoff_time)
-        self.backoff_time = min(self.backoff_time * 2, 60)
 
 
 class DiscogsFetcher:
@@ -433,11 +224,11 @@ class DiscogsFetcher:
             self.mongodb_client.reset_fetching_status(document_ids)
             raise
 
-    def process_batch(self, batch_size=100, timestamp=True):
+    def process_batch(self, batch_size=100, timestamp=True, db_query_index=""):
         while True:
             start_time = time.time()
-            documents = self.mongodb_client.retrieve_documents_without_image_uri(
-                limit=batch_size, as_list=True
+            documents = self.mongodb_client.retrieve_documents_by_query(
+                limit=batch_size, as_list=True, query_path=db_query_index
             )
             if not documents:
                 logger.info("No more documents to process")
@@ -554,6 +345,13 @@ def fetch_images(
     timestamp: bool = typer.Option(
         True, help="Add timestamp to documents when updating"
     ),
+    queries_file: str = typer.Option(
+        "./src/config/mongodb_queries.json",
+        help="Path to the MongoDB queries JSON file",
+    ),
+    queries_index_path: str = typer.Option(
+        "covers.get_albums_no_uri.query", help="Path to the query in the JSON file"
+    ),
 ):
     """
     Fetch image URIs for Discogs albums and update the MongoDB database.
@@ -577,10 +375,14 @@ def fetch_images(
 
         logger.debug(f"Mongo URI: {mongo_uri}")
 
+        # Resolve the relative path to an absolute path
+        queries_file_path = Path(queries_file).resolve()
+
         mongodb_client = DatabaseManager(
             uri=mongo_uri,
             db_name=db_name,
             collection_name=collection_name,
+            queries_file=queries_file_path,  # Pass the resolved path here
         )
 
         discogs_user_token = os.getenv("DISCOGS_API_KEY")
@@ -594,7 +396,7 @@ def fetch_images(
         fetcher = DiscogsFetcher(
             discogs_user_token, mongodb_client, user_agent, "tracklist"
         )
-        fetcher.process_batch(batch_size=batch_size, timestamp=timestamp)
+        fetcher.process_batch(batch_size=batch_size, timestamp=timestamp, db_query_index=queries_index_path)
 
     except Exception as e:
         typer.secho(f"An unexpected error occurred: {e}", fg=typer.colors.RED)
