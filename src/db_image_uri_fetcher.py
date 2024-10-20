@@ -49,7 +49,7 @@ def fetch_images(
             load_dotenv(dotenv_path=env_file)
         else:
             env_file_path = Path(__file__).resolve().parents[1] / ".env"
-            logger.info(env_file_path)
+            logger.debug(env_file_path)
             load_dotenv(dotenv_path=env_file_path)
 
         if not mongo_uri:
@@ -74,6 +74,10 @@ def fetch_images(
         )
 
         discogs_user_token = os.getenv("DISCOGS_API_KEY")
+        discogs_rate_limit = {
+            "max_reqs": 60,
+            "interval": 60,
+        }
         if not discogs_user_token:
             typer.secho(
                 "DISCOGS_API_KEY environment variable not set or empty",
@@ -82,7 +86,7 @@ def fetch_images(
             raise typer.Exit(code=1)
 
         fetcher = DiscogsFetcher(
-            discogs_user_token, mongodb_client, user_agent, "tracklist"
+            discogs_user_token, mongodb_client, user_agent, discogs_rate_limit, "tracklist", 
         )
         fetcher.process_batch(batch_size=batch_size, db_query_index=queries_index_path)
 
