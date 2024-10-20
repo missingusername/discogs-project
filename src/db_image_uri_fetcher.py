@@ -167,6 +167,14 @@ class DiscogsFetcher:
             )
             return None, 0, time.time() - start_time
 
+    def _reshape_document_fields_to_embedded(self, embedded_doc_key: str, fields_to_add: dict):
+        reshaped_document_fields = {}
+        reshaped_document_fields[embedded_doc_key] = {}
+        for key, value in fields_to_add.items():
+            reshaped_document_fields[embedded_doc_key][key] = value
+        return reshaped_document_fields
+            
+            
     def fetch_image_uri_and_tracklist(self, master_id: int):
         start_time = time.time()
         try:
@@ -179,15 +187,22 @@ class DiscogsFetcher:
             response = self.make_request(url, headers)
 
             master_data = response.json()
-            new_document_fields = {
+            album_document_fields = {
                 "image_uri": (
                     master_data["images"][0]["uri"]
                     if master_data.get("images")
                     else "Image not available"
                 ),
-                "track_list": master_data.get("tracklist", []),
+                "uri_time_fetched": time.time(),
+                "fetching_status": "processed",
             }
-            return new_document_fields, response.status_code, time.time() - start_time
+            tracklist_document_fields = {
+                "track_list": master_data.get("tracklist", [])
+            }
+            album_document_fields = self._reshape_document_fields_to_embedded(embedded_doc_key="album_cover", fields_to_add=album_document_fields)
+            all_document_fields = {**album_document_fields, **tracklist_document_fields}
+            # logger.error(f"HERE ARE ALL THE FIELDS AFTER MANIPULATION {all_document_fields}")
+            return all_document_fields, response.status_code, time.time() - start_time
 
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
@@ -253,7 +268,7 @@ class DiscogsFetcher:
                         if master_id:
                             if self.fetch_mode == "tracklist":
                                 document_fields, status_code, request_time = (
-                                    self.fetch_image_uri_and_tracklist(master_id)
+                                    self.fetch_image_uri_and_tracklist(document, master_id)
                                 )
                             elif self.fetch_mode == "popularity":
                                 document_fields, status_code, request_time = (
@@ -268,23 +283,6 @@ class DiscogsFetcher:
                             request_times.append(request_time)
 
                             if document_fields:
-                                if "image_uri" in document_fields:
-                                    document["album_cover"] = document.get(
-                                        "album_cover", {}
-                                    )
-                                    document["album_cover"]["image_uri"] = (
-                                        document_fields.pop("image_uri")
-                                    )
-                                if "error" in document_fields:
-                                    document["album_cover"] = document.get(
-                                        "album_cover", {}
-                                    )
-                                    document["album_cover"][
-                                        "image_uri"
-                                    ] = "Image not available"
-                                    document["album_cover"]["error"] = (
-                                        document_fields.pop("error")
-                                    )
                                 document.update(document_fields)
                                 updated_documents.append(document)
                             else:
@@ -294,7 +292,7 @@ class DiscogsFetcher:
 
                     if updated_documents:
                         if self.mongodb_client.update_documents_batch(
-                            updated_documents, timestamp=timestamp
+                            updated_documents
                         ):
                             logger.info(
                                 f"Processed and updated {len(updated_documents)} documents."
@@ -333,7 +331,7 @@ class DiscogsFetcher:
 @app.command()
 def fetch_images(
     batch_size: int = typer.Option(
-        60, help="Number of documents to process in each batch"
+        6, help="Number of documents to process in each batch"
     ),
     env_file: Optional[Path] = typer.Option(None, help="Path to the .env file"),
     mongo_uri: Optional[str] = typer.Option(None, help="MongoDB URI"),

@@ -93,30 +93,12 @@ class DatabaseManager:
             logger.debug(f"Found query: {current}")
             return current
 
-    def update_documents_batch(
-        self, documents: List[dict], timestamp: Optional[bool] = True
-    ) -> bool:
-        logger.info(
-            f"Updating batch of {len(documents)} documents with timestamp: {timestamp}"
-        )
+    def update_documents_batch(self, documents: List[dict]) -> bool:
+        logger.info(f"Updating batch of {len(documents)} documents")
         try:
             bulk_operations = []
             for document in documents:
-                update_fields = {}
-                album_cover_fields = document.get("album_cover", {})
-
-                # Handle all other fields dynamically
-                for key, value in document.items():
-                    if key not in ["_id", "image_uri", "album_cover"]:
-                        update_fields[key] = value
-
-                if timestamp:
-                    album_cover_fields["uri_time_fetched"] = time.time()
-
-                if album_cover_fields:
-                    album_cover_fields["fetching_status"] = "processed"
-                    update_fields["album_cover"] = album_cover_fields
-
+                update_fields = {key: value for key, value in document.items() if key != "_id"}
                 bulk_operations.append(
                     pymongo.UpdateOne(
                         {"_id": document["_id"]},
