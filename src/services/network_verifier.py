@@ -58,3 +58,8 @@ class NetworkUtils:
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to fetch external IP address: {e}")
             return None
+        
+def main():
+    local_ip = NetworkUtils.get_local_machine_ip()
+    external_ip = NetworkUtils.get_external_machine_ip()
+    print(f"Local IP: {local_ip}, External IP: {external_ip}")
