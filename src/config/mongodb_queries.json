@@ -1,0 +1,39 @@
+{
+    "covers": {
+        "get_albums_no_uri": {
+            "collection": "albums",
+            "operation": "find_one_and_update",
+            "query": {
+                "$and": [
+                    {
+                        "$or": [
+                            {"album_cover.image_uri": {"$exists": false}},
+                            {"album_cover.image_uri": ""}
+                        ]
+                    },
+                    {"album_cover.fetching_status": {"$ne": "fetching"}},
+                    {"image_uri": {"$exists": false}}
+                ]
+            }
+        },
+        "get_albums_no_image_data": {
+            "collection": "albums",
+            "operation": "find_one_and_update",
+            "query": {
+                "$and": [
+                  {"album_cover.image_uri": {"$exists": true}},
+                  {"album_cover.image_uri": {"$nin": ["", "Image not available"]}},
+                  {"album_cover.image_data": {"$exists": false}},
+                  {"album_cover.fetching_status": {"$ne": "fetching"}}
+                ]
+              }
+        },
+        "get_num_albums_has_image_data": {
+            "collection": "albums",
+            "operation": "count_documents",
+            "query": {
+                "album_cover.image_data": {"$exists": true}
+            }
+        }
+    }   
+}
