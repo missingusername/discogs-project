@@ -7,12 +7,26 @@
                 "$and": [
                     {
                         "$or": [
-                            {"album_cover.image_uri": {"$exists": false}},
-                            {"album_cover.image_uri": ""}
+                            {
+                                "album_cover.image_uri": {
+                                    "$exists": false
+                                }
+                            },
+                            {
+                                "album_cover.image_uri": ""
+                            }
                         ]
                     },
-                    {"album_cover.fetching_status": {"$ne": "fetching"}},
-                    {"image_uri": {"$exists": false}}
+                    {
+                        "album_cover.fetching_status": {
+                            "$ne": "fetching"
+                        }
+                    },
+                    {
+                        "image_uri": {
+                            "$exists": false
+                        }
+                    }
                 ]
             }
         },
@@ -21,19 +35,128 @@
             "operation": "find_one_and_update",
             "query": {
                 "$and": [
-                  {"album_cover.image_uri": {"$exists": true}},
-                  {"album_cover.image_uri": {"$nin": ["", "Image not available"]}},
-                  {"album_cover.image_data": {"$exists": false}},
-                  {"album_cover.fetching_status": {"$ne": "fetching"}}
+                    {
+                        "album_cover.image_uri": {
+                            "$exists": true
+                        }
+                    },
+                    {
+                        "album_cover.image_uri": {
+                            "$nin": [
+                                "",
+                                "Image not available"
+                            ]
+                        }
+                    },
+                    {
+                        "album_cover.image_data": {
+                            "$exists": false
+                        }
+                    },
+                    {
+                        "album_cover.fetching_status": {
+                            "$ne": "fetching"
+                        }
+                    }
                 ]
-              }
+            }
         },
         "get_num_albums_has_image_data": {
             "collection": "albums",
             "operation": "count_documents",
             "query": {
-                "album_cover.image_data": {"$exists": true}
+                "album_cover.image_data": {
+                    "$exists": true
+                }
+            }
+        },
+        "get_albums_has_image_data_no_embeddings": {
+            "collection": "albums",
+            "operation": "find",
+            "query": {
+                "$and": [
+                    {
+                        "album_cover.image_data": {
+                            "$exists": true,
+                            "$ne": null
+                        }
+                    },
+                    {
+                        "album_cover.embeddings": {
+                            "$exists": false
+                        }
+                    }
+                ]
             }
         }
-    }   
+    },
+    "album_metadata": {
+        "get_artist_names_field_string": {
+            "collection": "albums",
+            "operation": [
+                "find",
+                "aggregate"
+            ],
+            "type": "query",
+            "query": {
+                "$and": [
+                    {
+                        "artist_names": {
+                            "$type": "string"
+                        }
+                    },
+                    {
+                        "artist_names": {
+                            "$not": {
+                                "$type": "array"
+                            }
+                        }
+                    }
+                ]
+            },
+            "pipeline": [
+                {
+                    "$match": {
+                        "$expr": {
+                            "$eq": [
+                                {
+                                    "$type": "$artist_names"
+                                },
+                                "array"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "$count": "matching_docs"
+                }
+            ]
+        },
+        "get_unique_master_ids": {
+            "collection": "albums",
+            "operation": "aggregate",
+            "pipeline": [
+                {
+                    "$group": {
+                        "_id": "$master_id"
+                    }
+                },
+                {
+                    "$count": "matching_docs"
+                }
+            ]
+        }
+    },
+    "meta_database": {
+        "find_string_arrays": {
+            "collection": "albums",
+            "operation": "find",
+            "query": {
+                "master_id": {
+                    "$type": "string",
+                    "$regex": "^\\[.*\\]$"
+                }
+            }
+        }
+    }
 }
