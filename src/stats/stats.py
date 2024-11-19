@@ -1,18 +1,18 @@
 """
 This script generates various statistics from a CSV file containing music data and saves the results to CSV and JSON files.
 """
-
-import pandas as pd
 from collections import Counter
+import pandas as pd
 import ast
 import os
-from tqdm import tqdm
 import json
 
 # Function to generate statistics from the CSV
 def generate_csv_stats(input_csv):
+    print("Loading CSV file...")
     # Load the CSV file into a pandas DataFrame
     df = pd.read_csv(input_csv)
+    print("CSV file loaded.")
 
     # Initialize counters for genres, styles, years, and artists
     genre_counter = Counter()
@@ -24,34 +24,25 @@ def generate_csv_stats(input_csv):
     genre_by_year = {}
     style_by_year = {}
 
-    # Iterate through each row in the DataFrame
-    for _, row in tqdm(df.iterrows(), total=len(df)):
-        # Count genres
-        genres = ast.literal_eval(row['genres'])  # Convert string representation of list to actual list
-        genre_counter.update(genres)
+    print("Processing columns...")
+    # Explode the lists in 'genres', 'styles', and 'artist_names' columns
+    df['genres'] = df['genres'].apply(ast.literal_eval)
+    df['styles'] = df['styles'].apply(ast.literal_eval)
+    df['artist_names'] = df['artist_names'].apply(ast.literal_eval)
 
-        # Count styles
-        styles = ast.literal_eval(row['styles'])  # Convert string representation of list to actual list
-        style_counter.update(styles)
+    # Update counters
+    genre_counter.update(df['genres'].explode())
+    style_counter.update(df['styles'].explode())
+    year_counter.update(df['year'])
+    artist_counter.update(df['artist_names'].explode())
 
-        # Count years
-        year = row['year']
-        year_counter[year] += 1
+    print("Tracking genres and styles by year...")
+    # Track genres and styles by year
+    for year, group in df.groupby('year'):
+        genre_by_year[year] = Counter(group['genres'].explode())
+        style_by_year[year] = Counter(group['styles'].explode())
 
-        # Track genres by year
-        if year not in genre_by_year:
-            genre_by_year[year] = Counter()
-        genre_by_year[year].update(genres)
-
-        # Track styles by year
-        if year not in style_by_year:
-            style_by_year[year] = Counter()
-        style_by_year[year].update(styles)
-
-        # Count artists
-        artists = ast.literal_eval(row['artist_names'])  # Convert string representation of list to actual list
-        artist_counter.update(artists)
-
+    print("Creating DataFrames for each stat...")
     # Create DataFrames for each stat
     genre_df = pd.DataFrame(genre_counter.items(), columns=['Genre', 'Frequency']).sort_values(by='Frequency', ascending=False)
     style_df = pd.DataFrame(style_counter.items(), columns=['Style', 'Frequency']).sort_values(by='Frequency', ascending=False)
@@ -65,12 +56,14 @@ def generate_csv_stats(input_csv):
     output_folder = os.path.join('out', 'stats', file_name)
     os.makedirs(output_folder, exist_ok=True)
 
+    print("Exporting stats to CSV files...")
     # Export the stats to CSV files
     genre_df.to_csv(os.path.join(output_folder, 'genre_stats.csv'), index=False)
     style_df.to_csv(os.path.join(output_folder, 'style_stats.csv'), index=False)
     year_df.to_csv(os.path.join(output_folder, 'year_stats.csv'), index=False)
     artist_df.to_csv(os.path.join(output_folder, 'artist_stats.csv'), index=False)
 
+    print("Dumping 2D dictionaries to JSON files...")
     # Dump the 2D dictionaries to a JSON file
     with open(os.path.join(output_folder, 'genre_by_year.json'), 'w') as f:
         json.dump(genre_by_year, f)
@@ -81,7 +74,7 @@ def generate_csv_stats(input_csv):
     print(f"Statistics CSV files and JSON files generated in {output_folder}")
 
 def main():
-    input_csv = 'in/random_samples/random_sample_10k.csv'
+    input_csv = 'in/all_masters.csv'
     generate_csv_stats(input_csv)
 
 if __name__ == '__main__':
