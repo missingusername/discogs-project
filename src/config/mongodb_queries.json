@@ -98,6 +98,30 @@
                     "$exists": true
                 }
             }
+        },
+        "get_albums_has_reduced_embeddings": {
+            "collection": "albums",
+            "operation": "find",
+            "pipeline": [
+                {
+                    "$match": {
+                        "album_cover.reduced_embedding_all": {
+                            "$exists": true
+                        }
+                    }
+                },
+                {
+                    "$project": {
+                        "_id": 1,
+                        "master_id": 1,
+                        "title": 1,
+                        "genres": 1,
+                        "year": 1,
+                        "artist_names": 1,
+                        "reduced_embedding_all": "$album_cover.reduced_embedding_all"
+                    }
+                }
+            ]
         }
     },
     "album_metadata": {
