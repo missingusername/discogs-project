@@ -44,6 +44,57 @@ class DatabaseManager:
     def split_string_return_last_element(string: str, delimiter: str) -> str:
         return string.split(delimiter)[-1]
 
+    def export_documents_to_csv(self, output_dir, output_file_name, pipeline_path):
+        try:
+            pipeline = self._get_query_by_path(pipeline_path)
+            if pipeline is None:
+                logger.error(f"Pipeline not found for path: {pipeline_path}")
+                return False
+
+            logger.info(f"Exporting documents to CSV using pipeline: {pipeline}")
+
+            cursor = self.collection.aggregate(pipeline, allowDiskUse=True)
+            documents: List[dict] = []
+            for doc in cursor:
+                documents.append(doc)
+
+            logger.info(len(documents))
+
+            if not documents:
+                logger.warning("No documents found with reduced embeddings")
+                return False
+
+            data = []
+            for doc in documents:
+                embedding = doc["reduced_embedding_all"]
+                row = {
+                    "document_id": str(doc.get("_id", "unknown")),
+                    "master_id": doc.get("master_id", "unknown"),
+                    "title": doc.get("title", "untitled"),
+                    "year": doc.get("year", 0),
+                    "artists": doc.get("artist_names", []),
+                    "genres": doc.get("genres", []),
+                    "x": embedding[0] if embedding and len(embedding) > 0 else 0.0,
+                    "y": embedding[1] if embedding and len(embedding) > 1 else 0.0,
+                }
+                data.append(row)
+
+            df = pd.DataFrame(data)
+
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save to CSV
+            output_path = output_dir / output_file_name
+            df.to_csv(output_path, index=False)
+            logger.info(
+                f"Successfully exported {len(documents)} embeddings to {output_file_name}"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to export reduced embeddings: {e}")
+            return False
+
     def merge_duplicate_documents(
         self,
         field: str,
